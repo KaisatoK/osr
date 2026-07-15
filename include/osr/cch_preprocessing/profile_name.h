@@ -80,5 +80,9 @@ namespace osr::cch_preprocessing {
     struct profile_name<ferry> {
         static constexpr std::string_view const value = "ferry";
     };
+    template <>
+    struct profile_name<hgv> {
+        static constexpr std::string_view const value = "hgv";
+    };
     
 } // namespace osr::cch_preprocessing

@@ -21,22 +21,31 @@ namespace osr {
         struct node_entry {
             static constexpr auto const kMaxPredSize = 4U;
 
-            node_entry(node n, cost_t cost) : curr_(n), cost_(cost) {
-                std::fill(pred_.begin(), pred_.end(), node::invalid());
-            }
-
             static constexpr node_entry invalid() {
-                return node_entry{node::invalid(), kInfeasible, {node::invalid(), node::invalid(), node::invalid(), node::invalid()}};
+                return node_entry{
+                    .curr_ = node::invalid(), 
+                    .cost_ = kInfeasible, 
+                    .pred_ = {prep::ext_edge_idx_t::invalid(), prep::ext_edge_idx_t::invalid(), prep::ext_edge_idx_t::invalid(), prep::ext_edge_idx_t::invalid()}
+                };
             }
 
-            void update(cost_t const new_cost, node const pred) {
+            prep::ext_edge_idx_t const& pred() const {
+                for (auto const& p : pred_) {
+                    if (p != prep::ext_edge_idx_t::invalid()) {
+                        return p;
+                    }
+                }
+                return prep::ext_edge_idx_t::invalid();
+            }
+
+            void update(cost_t const new_cost, prep::ext_edge_idx_t const pred) {
                 if (new_cost < cost_) {
                     cost_ = new_cost;
+                    std::fill(pred_.begin(), pred_.end(), prep::ext_edge_idx_t::invalid());
                     pred_[0] = pred;
-                    std::fill(pred_.begin() + 1, pred_.end(), node::invalid());
                 } else if (new_cost == cost_) {
                     for (auto& p : pred_) {
-                        if (p == node::invalid()) {
+                        if (p == prep::ext_edge_idx_t::invalid()) {
                             p = pred;
                             break;
                         }
@@ -46,57 +55,57 @@ namespace osr {
 
             node curr_;
             cost_t cost_;
-            std::array<node, kMaxPredSize> pred_;
+            std::array<prep::ext_edge_idx_t, kMaxPredSize> pred_;
         };
 
-        cch_query(prep::customized_cost_stored<P> const& cost_function)
-            : cost_function_{cost_function},
-              node_costs_(cost_function_.virtual_nodes_.size()),
-              is_marked_(cost_function_.virtual_nodes_.size()),
-              starts(),
-              dests() {
-            for (std::size_t i = 0; i < cost_function_.virtual_nodes_.size(); ++i) {
-                node_costs_[i].resize(cost_function_.virtual_nodes_[i].size(), node_entry::invalid());
-                is_marked_[i].resize(cost_function_.virtual_nodes_[i].size(), false);
-            }
-        }
+        cch_query(prep::customized_cost_stored<P> const& cost_function) : cost_function_{cost_function} {}
 
-        cch_query(std::filesystem::path path) : cch_query{prep::customized_cost_stored<P>::read(path)} {}
+        cch_query(std::filesystem::path const& path) : cost_function_{*prep::customized_cost_stored<P>::read(path)} {}
 
         void reset() {
-            starts.clear();
-            dests.clear();
-            cost_function_.for_each_vir_node<false>([&](node const n, prep::ext_node_idx_t const idx) {
-                node_costs_[idx.first][idx.second] = node_entry::invalid();
-                is_marked_[idx.first][idx.second] = false;
-            });
+            starts_.clear();
+            dests_.clear();
+            node_costs_.clear();
+            is_marked_.clear();
+        }
+
+        node_idx_t get_flatten_node_idx(prep::ext_node_idx_t const idx) const {
+            return static_cast<node_idx_t>(cost_function_.idx_ranges_.at(idx.first) + idx.second);
+        }
+
+        node_entry const& get_node_entry(node const n) const {
+            return node_costs_.at(get_flatten_node_idx(cost_function_.get_virtual_node_idx(n).value()));
         }
 
         void add_start(node const n) {
             auto const start_idx = cost_function_.get_virtual_node_idx(n);
             if (start_idx) {
-                starts.emplace_back(n);
-                node_costs_[start_idx->first][start_idx->second] = node_entry{n, 0};
+                starts_.emplace_back(n);
+                auto content = node_entry::invalid();
+                content.curr_ = n;
+                content.cost_ = 0;
+                node_costs_[get_flatten_node_idx(*start_idx)] = content;
             }
         }
 
         void add_dest(node const n) {
             auto const dest_idx = cost_function_.get_virtual_node_idx(n);
             if (dest_idx) {
-                dests.emplace_back(n);
+                dests_.emplace_back(n);
             }
         }
 
         template <typename Container>
         void add(prep::ext_node_idx_t u, Container& container) {
-            if (is_marked_[u.first][u.second]) {
+            if (is_marked_.count(get_flatten_node_idx(u))) {
                 return;
             }
-            std::stack<prep::ext_node_idx_t> st{u};
+            std::stack<prep::ext_node_idx_t> st;
+            st.push(u);
             while (true) {
-                is_marked_[u.first][u.second] = true;
+                is_marked_[get_flatten_node_idx(u)] = true;
                 auto par = cost_function_.get_parent(u);
-                if (par && *par != u && !is_marked_[par->first][par->second]) {
+                if (par && *par != u && !is_marked_.count(get_flatten_node_idx(*par))) {
                     st.push(*par);
                 } else {
                     break;
@@ -113,7 +122,7 @@ namespace osr {
         bool run() {
             // first phase
             std::stack<prep::ext_node_idx_t> prep_order1{};
-            for (auto const& start : starts) {
+            for (auto const& start : starts_) {
                 auto start_idx = cost_function_.get_virtual_node_idx(start);
                 add(*start_idx, prep_order1);
             }
@@ -122,15 +131,19 @@ namespace osr {
                 prep_order1.pop();
                 for (auto const& uv : cost_function_.get_upward_edges(u)) {
                     auto const v = cost_function_.extended_edges_[uv].to_;
-                    auto const new_cost = node_costs_[u.first][u.second] + cost_function_.extended_edges_[uv].cost_;
-                    node_costs_[v.first][v.second].update(new_cost, cost_function_.get_virtual_node(u));
+                    auto const new_cost = node_costs_[get_flatten_node_idx(u)].cost_ + cost_function_.extended_edges_[uv].cost_;
+
+                    if (node_costs_.count(get_flatten_node_idx(v))) {
+                        node_costs_[get_flatten_node_idx(v)] = node_entry::invalid();
+                    }
+                    node_costs_[get_flatten_node_idx(v)].update(new_cost, uv);
                 }
-                is_marked_[u.first][u.second] = false;
             }
+            is_marked_.clear();
 
             // second phase
             std::queue<prep::ext_node_idx_t> prep_order2{};
-            for (auto const& dest : dests) {
+            for (auto const& dest : dests_) {
                 auto dest_idx = cost_function_.get_virtual_node_idx(dest);
                 add(*dest_idx, prep_order2);
             }
@@ -139,18 +152,22 @@ namespace osr {
                 prep_order2.pop();
                 for (auto const& uv : cost_function_.get_downward_edges(u)) {
                     auto const v = cost_function_.extended_edges_[uv].to_;
-                    auto const new_cost = node_costs_[u.first][u.second] + cost_function_.extended_edges_[uv].cost_;
-                    node_costs_[v.first][v.second].update(new_cost, cost_function_.get_virtual_node(u));
+                    auto const new_cost = node_costs_[get_flatten_node_idx(u)].cost_ + cost_function_.extended_edges_[uv].cost_;
+                    
+                    if (node_costs_.count(get_flatten_node_idx(v))) {
+                        node_costs_[get_flatten_node_idx(v)] = node_entry::invalid();
+                    }
+                    node_costs_[get_flatten_node_idx(v)].update(new_cost, uv);
                 }
-                is_marked_[u.first][u.second] = false;
             }
+            is_marked_.clear();
 
             return true;
         }
 
         prep::customized_cost_stored<P> const& cost_function_;
-        std::vector<std::vector<node_entry>> node_costs_;
-        std::vector<std::vector<bool>> is_marked_;
-        std::vector<node> starts, dests;
+        hash_map<node_idx_t, node_entry> node_costs_;
+        hash_map<node_idx_t, bool> is_marked_;
+        std::vector<node> starts_, dests_;
     };
 } // namespace osr

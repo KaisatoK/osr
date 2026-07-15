@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <iterator>
 #include <list>
+#include <stack>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -39,6 +40,10 @@ namespace osr::cch_preprocessing {
 
     struct ext_edge {
         static constexpr std::size_t const kMaxTracebackSize = 4U;
+
+        inline bool is_original() const{
+            return traceback_.empty();
+        }
 
         void update(cost_t const new_cost, ext_edge_idx_t const first_half, ext_edge_idx_t const second_half) {
             if (new_cost < cost_) {
@@ -81,6 +86,41 @@ namespace osr::cch_preprocessing {
             downward_edges_ = vecvec<node_idx_t, ext_edge_idx_t>();
         }
 
+        std::vector<ext_edge> trace_sg_edge(ext_edge_idx_t const& edge_idx) const {
+            std::vector<ext_edge> res{0};
+            std::stack<ext_edge_idx_t> st{};
+            st.push(edge_idx);
+            while (!st.empty()) {
+                auto const uv = st.top();
+                auto const edge = extended_edges_.at(uv);
+                st.pop();
+
+                if (edge.is_original()) {
+                    res.emplace_back(edge);
+                } else { // we only care about the first pair for now
+                    utl::verify(get_edge(edge.traceback_.front().first).cost_ + get_edge(edge.traceback_.front().second).cost_ == edge.cost_,
+                                "traceback cost mismatch, from tuple {}, {} and {}",
+                                to_string(uv), to_string(edge.traceback_.front().first), to_string(edge.traceback_.front().second));
+
+                    utl::verify(edge.from_ == get_edge(edge.traceback_.front().first).from_ && edge.to_ == get_edge(edge.traceback_.front().second).to_,
+                                "traceback from/to mismatch, from tuple {}, {} and {}",
+                                to_string(uv), to_string(edge.traceback_.front().first), to_string(edge.traceback_.front().second));
+
+                    utl::verify(get_edge(edge.traceback_.front().first).to_ == get_edge(edge.traceback_.front().second).from_,
+                                "traceback transit mismatch, from tuple {}, {} and {}",
+                                to_string(uv), to_string(edge.traceback_.front().first), to_string(edge.traceback_.front().second));
+                    
+                    st.push(edge.traceback_.front().second);
+                    st.push(edge.traceback_.front().first);
+                }
+            }
+            return res;
+        }
+
+        ext_edge get_edge(ext_edge_idx_t const& idx) const {
+            return extended_edges_.at(idx);
+        }
+
         std::optional<ext_node_idx_t> get_virtual_node_idx(node const& n) const {
             if (n.get_node() == node_idx_t::invalid() || n.get_node() >= static_cast<node_idx_t>(virtual_nodes_.size())) {
                 return std::nullopt;
@@ -97,7 +137,7 @@ namespace osr::cch_preprocessing {
         }
 
         node get_virtual_node(ext_node_idx_t const& idx) const {
-            return virtual_nodes_[static_cast<node_idx_t>(idx_ranges_.at(idx.first) + idx.second)];
+            return virtual_nodes_[idx.first][idx.second];
         }
 
         std::optional<ext_node_idx_t> get_parent(ext_node_idx_t const& idx) const {
@@ -281,10 +321,10 @@ namespace osr::cch_preprocessing {
             for_each_vir_node<false>(
                 [&](node const& from, ext_node_idx_t const& from_idx) {
                     bool isDebug = (ordering_.get_ordering(from_idx.first).v_ % 10000 == 0);
-                    P::template adjacent<direction::kForward, false>(params, r, from, blocked, additional, elevation, 
+                    P::template adjacent<direction::kForward, false>(params, r, from, duration_t{0}, std::nullopt, blocked, additional, elevation, 
                         [&](node const to,
                             std::uint32_t const cost,
-                            distance_t, way_idx_t const, std::uint16_t, std::uint16_t, elevation_storage::elevation, bool const) {
+                            duration_t, distance_t, way_idx_t const, std::uint16_t, std::uint16_t, elevation_storage::elevation, bool const) {
                                 
                             utl::verify(get_virtual_node_idx(to).has_value(), "Virtual node index for node {} not found", to.get_node());
                             auto const to_idx = *get_virtual_node_idx(to);

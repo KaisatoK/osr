@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <stack>
 
 #include "boost/thread/tss.hpp"
 
@@ -18,6 +19,7 @@
 #include "osr/routing/astar.h"
 #include "osr/routing/bidirectional.h"
 #include "osr/routing/dijkstra.h"
+#include "osr/routing/cch_query.h"
 #include "osr/routing/path_reconstruction.h"
 #include "osr/routing/profiles/bike.h"
 #include "osr/routing/profiles/bike_sharing.h"
@@ -29,6 +31,7 @@
 #include "osr/routing/with_profile.h"
 #include "osr/util/infinite.h"
 #include "osr/util/reverse.h"
+#include "osr/cch_preprocessing/customized_cost.h"
 
 namespace osr {
 
@@ -70,12 +73,104 @@ duration_t sum_segment_durations(std::vector<path::segment> const& segments,
   return total;
 }
 
+template <Profile P>
+cch_query<P>& get_cch_query(std::filesystem::path const& cch_path) {
+  static auto s = boost::thread_specific_ptr<cch_query<P>>{};
+  if (s.get() == nullptr) {
+    s.reset(new cch_query<P>(cch_path));
+  }
+  return *s.get();
+}
+
 routing_algorithm to_algorithm(std::string_view s) {
   switch (cista::hash(s)) {
     case cista::hash("dijkstra"): return routing_algorithm::kDijkstra;
     case cista::hash("bidirectional"): return routing_algorithm::kAStarBi;
+    case cista::hash("cch"): return routing_algorithm::kCCH;
   }
   throw utl::fail("unknown routing algorithm: {}", s);
+}
+
+template <Profile P>
+path reconstruct_cch(typename P::parameters const& params,
+                    ways const& w,
+                    lookup const& l,
+                    bitvec<node_idx_t> const* blocked,
+                    sharing_data const* sharing,
+                    elevation_storage const* elevations,
+                    cch_query<P> const& cch_q,
+                    location const& from,
+                    location const& to,
+                    way_candidate const& start,
+                    way_candidate const& dest,
+                    node_candidate const& dest_nc,
+                    typename P::node const dest_node,
+                    cost_t const cost,
+                    direction const dir) {
+
+  auto n = dest_node;
+  auto segments = std::vector<path::segment>{
+      {.polyline_ = l.get_node_candidate_path(dest, dest_nc,
+                                              dir == direction::kForward, to),
+       .from_level_ = dest_nc.lvl_,
+       .to_level_ = dest_nc.lvl_,
+       .from_ =
+           dir == direction::kForward ? n.get_node() : node_idx_t::invalid(),
+       .to_ =
+           dir == direction::kBackward ? n.get_node() : node_idx_t::invalid(),
+       .way_ = way_idx_t::invalid(),
+       .cost_ = dest_nc.cost_,
+       .duration_ = duration_from_cost(dest_nc.cost_),
+       .dist_ = static_cast<distance_t>(dest_nc.dist_to_node_),
+       .mode_ = dest_node.get_mode()}};
+
+  auto dist = 0.0;
+
+  while (true) {
+    auto const& entry = cch_q.node_costs_.at(n.get_node());
+    auto const pred_edge = entry.pred_.front();
+    if (pred_edge != prep::ext_edge_idx_t::invalid()) {
+      auto const edge_list = cch_q.cost_function_.trace_sg_edge(pred_edge);
+      for (auto it = edge_list.rbegin(); it != edge_list.rend(); ++it) {
+        auto const& e = *it;
+        auto const expected_cost = e.cost_;
+        auto const pred = cch_q.cost_function_.get_virtual_node(e.from_);
+        dist += add_path<P>(params, w, *w.r_, blocked, sharing, elevations, pred, n, expected_cost, segments, direction::kForward);
+        n = pred;
+      }
+    } else {
+      break;
+    }
+  }
+
+  auto const& start_node_candidate =
+      n.get_node() == start.left_.node_ ? start.left_ : start.right_;
+
+  segments.push_back(
+      {.polyline_ =
+           l.get_node_candidate_path(start, start_node_candidate, false, from),
+       .from_level_ = start_node_candidate.lvl_,
+       .to_level_ = start_node_candidate.lvl_,
+       .from_ = node_idx_t::invalid(),
+       .to_ = n.get_node(),
+       .way_ = way_idx_t::invalid(),
+       .cost_ = start_node_candidate.cost_,
+       .duration_ = duration_from_cost(start_node_candidate.cost_),
+       .dist_ = static_cast<distance_t>(start_node_candidate.dist_to_node_),
+       .mode_ = n.get_mode()});
+
+  std::reverse(segments.begin(), segments.end());
+
+  auto path_elevation = elevation_storage::elevation{};
+  for (auto const& segment : segments) {
+    path_elevation += segment.elevation_;
+  }
+
+  return path{.cost_ = cost,
+              .duration_ = sum_segment_durations(segments),
+              .dist_ = dest_nc.dist_to_node_ + dist + start_node_candidate.dist_to_node_,
+              .elevation_ = path_elevation,
+              .segments_ = segments};
 }
 
 template <Profile P>
@@ -703,6 +798,127 @@ std::optional<path> route_astar(typename P::parameters const& params,
 }
 
 template <Profile P>
+std::optional<path> route_cch(typename P::parameters const& params,
+                              ways const& w,
+                              lookup const& l,
+                              cch_query<P>& cch_q,
+                              location const& from,
+                              location const& to,
+                              match_view_t from_match,
+                              match_view_t to_match,
+                              cost_t const max,
+                              direction const dir,
+                              bitvec<node_idx_t> const* blocked,
+                              sharing_data const* sharing,
+                              elevation_storage const* elevations) {
+
+  if (auto const direct = try_direct(from, to); direct.has_value()) {
+    return *direct;
+  }
+
+  auto const apply = [&](way_candidate const& start, auto&& fn) {
+    for (auto const [j, end] : utl::enumerate(to_match)) {
+      if (w.r_->way_component_[start.way_] !=
+          w.r_->way_component_[end.way_]) {
+        continue;
+      }
+      if (component_seen(w, to_match, j)) {
+        continue;
+      }
+      for (auto const* nc : {&end.left_, &end.right_}) {
+        if (nc->valid() && nc->cost_ < max) {
+          P::resolve_all(*w.r_, nc->node_, to.lvl_, [&](auto const node) {
+            fn(end, nc, node);
+          });
+        }
+      }
+    }
+  };
+  
+  for (auto const [i, start] : utl::enumerate(from_match)) {
+    if (component_seen(w, from_match, i)) {
+      continue;
+    }
+
+    cch_q.reset();
+
+    auto const start_way = start.way_;
+    for (auto const* nc : {&start.left_, &start.right_}) {
+      if (nc->valid() && nc->cost_ < max) {
+        auto const start_cost = P::way_cost(
+            params, *w.r_, start_way, w.r_->way_properties_[start_way],
+            flip(dir, nc->way_dir_), static_cast<distance_t>(nc->dist_to_node_),
+            std::nullopt, duration_t{0}, dir);
+        if (start_cost.cost_ == kInfeasible || start_cost.cost_ >= max) {
+          continue;
+        }
+        P::resolve_start_node(
+            *w.r_, start_way, nc->node_, from.lvl_, dir, [&](auto const node) {
+              cch_q.add_start(node);
+            });
+      }
+    }
+
+    if (cch_q.starts_.empty()) {
+      continue;
+    }
+
+    apply(start, [&](way_candidate const& dest, node_candidate const* dest_nc, auto const node) {
+      if (!P::is_dest_reachable(params, *w.r_, node, dest.way_,
+                                flip(opposite(dir), dest_nc->way_dir_), dir,
+                                std::nullopt, duration_t{0})) {
+        return;
+      }
+      cch_q.add_dest(node);
+    });
+
+    if (cch_q.dests_.empty()) {
+      continue;
+    }
+
+    cch_q.run();
+
+    way_candidate best_dest;
+    node_candidate best_nc;
+    auto best_node = P::node::invalid();
+    auto best_cost = std::numeric_limits<cost_t>::max();
+    apply(start, [&](way_candidate const& dest, node_candidate const* dest_nc, auto const node) {
+      auto const target_cost = cch_q.get_node_entry(node).cost_;
+      if (!P::is_dest_reachable(params, *w.r_, node, dest.way_,
+                                flip(opposite(dir), dest_nc->way_dir_), dir,
+                                std::nullopt, duration_t{0})) {
+        return;
+      }
+
+      auto const dest_way_cost = P::way_cost(
+          params, *w.r_, dest.way_, w.r_->way_properties_[dest.way_],
+          flip(opposite(dir), dest_nc->way_dir_),
+          static_cast<distance_t>(dest_nc->dist_to_node_), std::nullopt,
+          duration_t{0}, dir);
+      if (dest_way_cost.cost_ == kInfeasible) {
+        return;
+      }
+
+      auto const total_cost = target_cost + dest_way_cost.cost_;
+      if (total_cost < best_cost) {
+        best_dest = dest;
+        best_nc = *dest_nc;
+        best_node = node;
+        best_cost = total_cost;
+      }
+    });
+
+    if (best_cost < max) {
+      return reconstruct_cch<P>(params, w, l, blocked, sharing, elevations, cch_q,
+                            from, to, start, best_dest, best_nc, best_node,
+                            best_cost, dir);
+    }
+  }
+
+  return std::nullopt;
+}
+
+template <Profile P>
 std::vector<std::optional<path>> route(
     typename P::parameters const& params,
     ways const& w,
@@ -919,6 +1135,32 @@ std::optional<path> route_astar(
   });
 }
 
+std::optional<path> route_cch(profile_parameters const& params,
+                          ways const& w,
+                          lookup const& l,
+                          search_profile const profile,
+                          location const& from,
+                          location const& to,
+                          cost_t const max,
+                          direction const dir,
+                          double const max_match_distance,
+                          bitvec<node_idx_t> const* blocked,
+                          sharing_data const* sharing,
+                          elevation_storage const* elevations) {
+  return with_profile(profile, [&]<Profile P>(P&&) -> std::optional<path> {
+    auto const& pp = std::get<typename P::parameters>(params);
+    auto const from_match = l.match<P>(pp, from, false, dir, max_match_distance, blocked);
+    auto const to_match =
+        l.match<P>(pp, to, true, dir, max_match_distance, blocked);
+
+    if (from_match.empty() || to_match.empty()) {
+      return std::nullopt;
+    }
+
+    return route_cch(pp, w, l, get_cch_query<P>(w.p_), from, to, from_match, to_match, max, dir, blocked, sharing, elevations);
+  });
+}
+
 std::vector<std::optional<path>> route(
     profile_parameters const& params,
     ways const& w,
@@ -1002,6 +1244,10 @@ std::optional<path> route(profile_parameters const& params,
         }
         return result;
       });
+    case routing_algorithm::kCCH:
+      return with_profile(profile, [&]<Profile P>(P&&) {
+        return std::nullopt;  // TODO
+      });
   }
   throw utl::fail("not implemented");
 }
@@ -1036,6 +1282,8 @@ std::optional<path> route(profile_parameters const& params,
       return route_bidirectional(params, w, l, profile, from, to, max, dir,
                                  max_match_distance, blocked, sharing,
                                  elevations);
+    case routing_algorithm::kCCH:
+      return route_cch(params, w, l, profile, from, to, max, dir, max_match_distance, blocked, sharing, elevations);
   }
   throw utl::fail("not implemented");
 }

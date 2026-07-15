@@ -28,6 +28,9 @@ struct astar;
 template <Profile>
 struct bidirectional;
 
+template <Profile>
+struct cch_query;
+
 struct sharing_data;
 
 template <Profile P>
@@ -38,6 +41,9 @@ dijkstra<P, false>& get_dijkstra();
 
 template <Profile P>
 astar<P, false>& get_astar();
+
+template <Profile P>
+cch_query<P>& get_cch_query();
 
 std::vector<std::optional<path>> route(
     profile_parameters const&,
@@ -113,6 +119,16 @@ std::optional<path> route_astar(profile_parameters const&,
                                 sharing_data const* sharing = nullptr,
                                 elevation_storage const* = nullptr,
                                 std::optional<routing_time_t> = std::nullopt);
+
+std::optional<path> route_cch(profile_parameters const&,
+                              ways const&,
+                              lookup const&,
+                              search_profile,
+                              location const& from,
+                              location const& to,
+                              bitvec<node_idx_t> const* blocked = nullptr,
+                              sharing_data const* sharing = nullptr,
+                              elevation_storage const* = nullptr);
 
 std::vector<std::optional<path>> route(
     profile_parameters const&,
