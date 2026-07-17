@@ -30,13 +30,9 @@ namespace osr::cch_preprocessing {
     using ext_node_idx_t = pair<node_idx_t, std::uint16_t>;
     using ext_edge_idx_t = way_idx_t;
 
-    std::string to_string(ext_node_idx_t idx) {
-        return fmt::format("({}, {})", idx.first, idx.second);
-    }
+    std::string to_string(ext_node_idx_t idx);
 
-    std::string to_string(ext_edge_idx_t idx) {
-        return fmt::format("({})", idx);
-    }
+    std::string to_string(ext_edge_idx_t idx);
 
     struct ext_edge {
         static constexpr std::size_t const kMaxTracebackSize = 4U;

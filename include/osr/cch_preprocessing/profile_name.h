@@ -10,6 +10,7 @@
 #include "osr/routing/profiles/ferry.h"
 #include "osr/routing/profiles/foot.h"
 #include "osr/routing/profiles/railway.h"
+#include "osr/routing/profiles/hgv.h"
 
 namespace osr::cch_preprocessing {
 

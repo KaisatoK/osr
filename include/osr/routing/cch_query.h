@@ -73,8 +73,12 @@ namespace osr {
             return static_cast<node_idx_t>(cost_function_.idx_ranges_.at(idx.first) + idx.second);
         }
 
-        node_entry const& get_node_entry(node const n) const {
-            return node_costs_.at(get_flatten_node_idx(cost_function_.get_virtual_node_idx(n).value()));
+        node_entry const get_node_entry(node const n) const {
+            auto const idx = get_flatten_node_idx(cost_function_.get_virtual_node_idx(n).value());
+            if (node_costs_.count(idx)) {
+                return node_costs_.at(idx);
+            }
+            return node_entry::invalid();
         }
 
         void add_start(node const n) {
@@ -121,6 +125,8 @@ namespace osr {
 
         bool run() {
             // first phase
+            fmt::print("=============== Beginning CCH query ==============\n");
+            fmt::print("Running first phase of CCH query with {} start nodes...\n", starts_.size());
             std::stack<prep::ext_node_idx_t> prep_order1{};
             for (auto const& start : starts_) {
                 auto start_idx = cost_function_.get_virtual_node_idx(start);
@@ -142,6 +148,7 @@ namespace osr {
             is_marked_.clear();
 
             // second phase
+            fmt::print("Running second phase of CCH query with {} destination nodes...\n", dests_.size());
             std::queue<prep::ext_node_idx_t> prep_order2{};
             for (auto const& dest : dests_) {
                 auto dest_idx = cost_function_.get_virtual_node_idx(dest);
@@ -161,6 +168,8 @@ namespace osr {
                 }
             }
             is_marked_.clear();
+
+            fmt::print("=============== Finished CCH query ==============\n");
 
             return true;
         }

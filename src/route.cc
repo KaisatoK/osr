@@ -835,12 +835,16 @@ std::optional<path> route_cch(typename P::parameters const& params,
     }
   };
   
+  fmt::print("from_match size: {}\n", from_match.size());
+
   for (auto const [i, start] : utl::enumerate(from_match)) {
     if (component_seen(w, from_match, i)) {
       continue;
     }
 
     cch_q.reset();
+
+    fmt::print("start way: {}\n", start.way_);
 
     auto const start_way = start.way_;
     for (auto const* nc : {&start.left_, &start.right_}) {
@@ -859,9 +863,13 @@ std::optional<path> route_cch(typename P::parameters const& params,
       }
     }
 
+    fmt::print("start nodes: {}\n", cch_q.starts_.size());
+
     if (cch_q.starts_.empty()) {
       continue;
     }
+
+    fmt::print("to_match size: {}\n", to_match.size());
 
     apply(start, [&](way_candidate const& dest, node_candidate const* dest_nc, auto const node) {
       if (!P::is_dest_reachable(params, *w.r_, node, dest.way_,
@@ -872,11 +880,15 @@ std::optional<path> route_cch(typename P::parameters const& params,
       cch_q.add_dest(node);
     });
 
+    fmt::print("dest nodes: {}\n", cch_q.dests_.size());
+
     if (cch_q.dests_.empty()) {
       continue;
     }
 
     cch_q.run();
+
+    fmt::print("Finding best path...\n");
 
     way_candidate best_dest;
     node_candidate best_nc;
@@ -907,6 +919,8 @@ std::optional<path> route_cch(typename P::parameters const& params,
         best_cost = total_cost;
       }
     });
+
+    fmt::print("best cost: {}\n", best_cost);
 
     if (best_cost < max) {
       return reconstruct_cch<P>(params, w, l, blocked, sharing, elevations, cch_q,
@@ -1246,7 +1260,9 @@ std::optional<path> route(profile_parameters const& params,
       });
     case routing_algorithm::kCCH:
       return with_profile(profile, [&]<Profile P>(P&&) {
-        return std::nullopt;  // TODO
+        return route_cch(std::get<typename P::parameters>(params), w, l,
+                         get_cch_query<P>(w.p_), from, to, from_match, to_match,
+                         max, dir, blocked, sharing, elevations);
       });
   }
   throw utl::fail("not implemented");
