@@ -4,6 +4,7 @@
 #include <queue>
 #include <array>
 
+#include "osr/cch_preprocessing/extended_type.h"
 #include "osr/cch_preprocessing/customized_cost.h"
 
 namespace osr {
@@ -21,7 +22,7 @@ namespace osr {
         struct node_entry {
             static constexpr auto const kMaxPredSize = 4U;
 
-            static constexpr node_entry invalid() {
+            static constexpr node_entry const invalid() {
                 return node_entry{
                     .curr_ = node::invalid(), 
                     .cost_ = kInfeasible, 
@@ -29,7 +30,7 @@ namespace osr {
                 };
             }
 
-            prep::ext_edge_idx_t const& pred() const {
+            prep::ext_edge_idx_t const pred() const {
                 for (auto const& p : pred_) {
                     if (p != prep::ext_edge_idx_t::invalid()) {
                         return p;
@@ -58,7 +59,8 @@ namespace osr {
             std::array<prep::ext_edge_idx_t, kMaxPredSize> pred_;
         };
 
-        cch_query(prep::customized_cost_stored<P> const& cost_function) : cost_function_{cost_function} {}
+        template <typename T>
+        cch_query(T&& cost_function) : cost_function_{std::forward<T>(cost_function)} {}
 
         cch_query(std::filesystem::path const& path) : cost_function_{*prep::customized_cost_stored<P>::read(path)} {}
 
@@ -135,14 +137,23 @@ namespace osr {
             while (!prep_order1.empty()) {
                 auto const u = prep_order1.top();
                 prep_order1.pop();
+                if (node_costs_.count(get_flatten_node_idx(u)) == 0) {
+                    continue;
+                }
+                auto const curr_cost = node_costs_[get_flatten_node_idx(u)].cost_;
                 for (auto const& uv : cost_function_.get_upward_edges(u)) {
-                    auto const v = cost_function_.extended_edges_[uv].to_;
-                    auto const new_cost = node_costs_[get_flatten_node_idx(u)].cost_ + cost_function_.extended_edges_[uv].cost_;
-
-                    if (node_costs_.count(get_flatten_node_idx(v))) {
-                        node_costs_[get_flatten_node_idx(v)] = node_entry::invalid();
+                    utl::verify(cost_function_.extended_edges_[uv].from_ == u, "upward edge from mismatch, expected {} but got {}", osr::cch_preprocessing::to_string(u), osr::cch_preprocessing::to_string(cost_function_.extended_edges_[uv].from_));
+                    if (curr_cost >= kInfeasible - cost_function_.extended_edges_[uv].cost_) {
+                        continue;
                     }
-                    node_costs_[get_flatten_node_idx(v)].update(new_cost, uv);
+                    auto const v = cost_function_.extended_edges_[uv].to_;
+                    auto const v_idx = get_flatten_node_idx(v);
+                    auto const new_cost = curr_cost + cost_function_.extended_edges_[uv].cost_;
+
+                    if (!node_costs_.count(v_idx)) {
+                        node_costs_[v_idx] = node_entry::invalid();
+                    }
+                    node_costs_[v_idx].update(new_cost, uv);
                 }
             }
             is_marked_.clear();
@@ -157,14 +168,23 @@ namespace osr {
             while (!prep_order2.empty()) {
                 auto const u = prep_order2.front();
                 prep_order2.pop();
+                if (node_costs_.count(get_flatten_node_idx(u)) == 0) {
+                    continue;
+                }
+                auto const curr_cost = node_costs_[get_flatten_node_idx(u)].cost_;
                 for (auto const& uv : cost_function_.get_downward_edges(u)) {
-                    auto const v = cost_function_.extended_edges_[uv].to_;
-                    auto const new_cost = node_costs_[get_flatten_node_idx(u)].cost_ + cost_function_.extended_edges_[uv].cost_;
-                    
-                    if (node_costs_.count(get_flatten_node_idx(v))) {
-                        node_costs_[get_flatten_node_idx(v)] = node_entry::invalid();
+                    utl::verify(cost_function_.extended_edges_[uv].from_ == u, "downward edge from mismatch, expected {} but got {}", osr::cch_preprocessing::to_string(u), osr::cch_preprocessing::to_string(cost_function_.extended_edges_[uv].from_));
+                    if (curr_cost >= kInfeasible - cost_function_.extended_edges_[uv].cost_) {
+                        continue;
                     }
-                    node_costs_[get_flatten_node_idx(v)].update(new_cost, uv);
+                    auto const v = cost_function_.extended_edges_[uv].to_;
+                    auto const v_idx = get_flatten_node_idx(v);
+                    auto const new_cost = curr_cost + cost_function_.extended_edges_[uv].cost_;
+
+                    if (!node_costs_.count(v_idx)) {
+                        node_costs_[v_idx] = node_entry::invalid();
+                    }
+                    node_costs_[v_idx].update(new_cost, uv);
                 }
             }
             is_marked_.clear();
@@ -174,7 +194,7 @@ namespace osr {
             return true;
         }
 
-        prep::customized_cost_stored<P> const& cost_function_;
+        prep::customized_cost_stored<P> const cost_function_;
         hash_map<node_idx_t, node_entry> node_costs_;
         hash_map<node_idx_t, bool> is_marked_;
         std::vector<node> starts_, dests_;

@@ -31,7 +31,6 @@
 #include "osr/routing/with_profile.h"
 #include "osr/util/infinite.h"
 #include "osr/util/reverse.h"
-#include "osr/cch_preprocessing/customized_cost.h"
 
 namespace osr {
 
@@ -127,8 +126,8 @@ path reconstruct_cch(typename P::parameters const& params,
   auto dist = 0.0;
 
   while (true) {
-    auto const& entry = cch_q.node_costs_.at(n.get_node());
-    auto const pred_edge = entry.pred_.front();
+    auto const& entry = cch_q.get_node_entry(n);
+    auto const pred_edge = entry.pred();
     if (pred_edge != prep::ext_edge_idx_t::invalid()) {
       auto const edge_list = cch_q.cost_function_.trace_sg_edge(pred_edge);
       for (auto it = edge_list.rbegin(); it != edge_list.rend(); ++it) {
@@ -834,8 +833,6 @@ std::optional<path> route_cch(typename P::parameters const& params,
       }
     }
   };
-  
-  fmt::print("from_match size: {}\n", from_match.size());
 
   for (auto const [i, start] : utl::enumerate(from_match)) {
     if (component_seen(w, from_match, i)) {
@@ -844,13 +841,11 @@ std::optional<path> route_cch(typename P::parameters const& params,
 
     cch_q.reset();
 
-    fmt::print("start way: {}\n", start.way_);
-
     auto const start_way = start.way_;
     for (auto const* nc : {&start.left_, &start.right_}) {
       if (nc->valid() && nc->cost_ < max) {
         auto const start_cost = P::way_cost(
-            params, *w.r_, start_way, w.r_->way_properties_[start_way],
+            params, *w.r_, w.timezones_, start_way, w.r_->way_properties_[start_way],
             flip(dir, nc->way_dir_), static_cast<distance_t>(nc->dist_to_node_),
             std::nullopt, duration_t{0}, dir);
         if (start_cost.cost_ == kInfeasible || start_cost.cost_ >= max) {
@@ -863,16 +858,12 @@ std::optional<path> route_cch(typename P::parameters const& params,
       }
     }
 
-    fmt::print("start nodes: {}\n", cch_q.starts_.size());
-
     if (cch_q.starts_.empty()) {
       continue;
     }
 
-    fmt::print("to_match size: {}\n", to_match.size());
-
     apply(start, [&](way_candidate const& dest, node_candidate const* dest_nc, auto const node) {
-      if (!P::is_dest_reachable(params, *w.r_, node, dest.way_,
+      if (!P::is_dest_reachable(params, *w.r_, w.timezones_, node, dest.way_,
                                 flip(opposite(dir), dest_nc->way_dir_), dir,
                                 std::nullopt, duration_t{0})) {
         return;
@@ -880,30 +871,29 @@ std::optional<path> route_cch(typename P::parameters const& params,
       cch_q.add_dest(node);
     });
 
-    fmt::print("dest nodes: {}\n", cch_q.dests_.size());
-
     if (cch_q.dests_.empty()) {
       continue;
     }
 
     cch_q.run();
 
-    fmt::print("Finding best path...\n");
-
-    way_candidate best_dest;
+    way_candidate best_wc;
     node_candidate best_nc;
     auto best_node = P::node::invalid();
-    auto best_cost = std::numeric_limits<cost_t>::max();
-    apply(start, [&](way_candidate const& dest, node_candidate const* dest_nc, auto const node) {
-      auto const target_cost = cch_q.get_node_entry(node).cost_;
-      if (!P::is_dest_reachable(params, *w.r_, node, dest.way_,
+    auto best_cost = kInfeasible;
+    apply(start, [&](way_candidate const& dest_wc, node_candidate const* dest_nc, auto const node) {
+      if (!P::is_dest_reachable(params, *w.r_, w.timezones_, node, dest_wc.way_,
                                 flip(opposite(dir), dest_nc->way_dir_), dir,
                                 std::nullopt, duration_t{0})) {
         return;
       }
+      auto const target_cost = cch_q.get_node_entry(node).cost_;
+      if (target_cost == kInfeasible || target_cost >= best_cost) {
+        return;
+      }
 
       auto const dest_way_cost = P::way_cost(
-          params, *w.r_, dest.way_, w.r_->way_properties_[dest.way_],
+          params, *w.r_, w.timezones_, dest_wc.way_, w.r_->way_properties_[dest_wc.way_],
           flip(opposite(dir), dest_nc->way_dir_),
           static_cast<distance_t>(dest_nc->dist_to_node_), std::nullopt,
           duration_t{0}, dir);
@@ -913,7 +903,7 @@ std::optional<path> route_cch(typename P::parameters const& params,
 
       auto const total_cost = target_cost + dest_way_cost.cost_;
       if (total_cost < best_cost) {
-        best_dest = dest;
+        best_wc = dest_wc;
         best_nc = *dest_nc;
         best_node = node;
         best_cost = total_cost;
@@ -924,7 +914,7 @@ std::optional<path> route_cch(typename P::parameters const& params,
 
     if (best_cost < max) {
       return reconstruct_cch<P>(params, w, l, blocked, sharing, elevations, cch_q,
-                            from, to, start, best_dest, best_nc, best_node,
+                            from, to, start, best_wc, best_nc, best_node,
                             best_cost, dir);
     }
   }

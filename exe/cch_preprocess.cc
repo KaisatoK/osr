@@ -14,7 +14,6 @@ using namespace boost::program_options;
 
 namespace fs = std::filesystem;
 namespace prep = cch_preprocessing;
-
 struct config : public conf::configuration {
     config(fs::path dir) : configuration{"Options"}, dir_{std::move(dir)} {
         param(dir_, "in,i", "Routing data directory");
@@ -24,7 +23,7 @@ struct config : public conf::configuration {
 };
 
 int main(int ac, char const** av) {
-    auto opt = config{"."};
+    auto opt = config{"./"};
     auto parser = conf::options_parser({&opt});
     parser.read_command_line_args(ac, av);
 
@@ -44,8 +43,10 @@ int main(int ac, char const** av) {
         return 1;
     }
 
+    auto const w = ways{opt.dir_, cista::mmap::protection::READ};
+
     utl::activate_progress_tracker("osr-cch-preprocess");
     auto const silencer = utl::global_progress_bars{false};
 
-    prep::preprocess(opt.dir_);
+    prep::preprocess(opt.dir_, w);
 }

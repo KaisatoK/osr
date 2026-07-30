@@ -13,6 +13,8 @@
 
 #include "fmt/core.h"
 
+#include "osr/types.h"
+#include "osr/ways.h"
 #include "osr/extract/extract.h"
 #include "osr/geojson.h"
 #include "osr/location.h"
@@ -24,16 +26,16 @@
 #include "osr/routing/profiles/car.h"
 #include "osr/routing/route.h"
 #include "osr/cch_preprocessing/preprocess.h"
-#include "osr/types.h"
-#include "osr/ways.h"
 
 namespace fs = std::filesystem;
 using namespace osr;
 
-constexpr auto const kUseMultithreading = true;
-constexpr auto const kPrintDebugGeojson = false;
+namespace cch_test {
+constexpr auto const kUseMultithreading = false;
+constexpr auto const kPrintDebugGeojson = true;
 constexpr auto const kMaxMatchDistance = 100;
 constexpr auto const kMaxAllowedPathDifferenceRatio = 0.5;
+constexpr auto const kSeed = 0xdeadbeef;
 
 void load_data(std::string_view raw_data, std::string_view data_dir) {
   if (fs::exists(raw_data)) {
@@ -41,12 +43,16 @@ void load_data(std::string_view raw_data, std::string_view data_dir) {
     auto ec = std::error_code{};
     fs::remove_all(p, ec);
     fs::create_directories(p, ec);
-    fmt::print("Extracting {} to {}...\n", raw_data, data_dir);
     osr::extract(false, raw_data, data_dir, fs::path{});
+  }
+}
+
+void load_customized_cost(std::string_view raw_data, std::string_view data_dir, ways const& w) {
+  if (fs::exists(raw_data)) {
     fmt::print("Preprocessing CCH for {}...\n", data_dir);
-    osr::cch_preprocessing::preprocess(data_dir);
+    osr::cch_preprocessing::preprocess(data_dir, w);
     fmt::print("Done extracting and preprocessing {} to {}.\n", raw_data,
-               data_dir);
+                data_dir);
   }
 }
 
@@ -110,7 +116,6 @@ void run_test(ways const& w,
                from_node, to_node,
                from_matches.size(), to_matches.size());
 
-    fmt::print("Running Dijkstra...\n");
     auto const reference_start = std::chrono::steady_clock::now();
     auto const reference = [&]() {
       try {
@@ -203,6 +208,7 @@ void run_test(ways const& w,
                     .count()));
   }
 }
+} // namespace cch_test
 
 TEST(dijkstra_cch, monaco_fwd) {
   auto const raw_data = "test/monaco.osm.pbf";
@@ -215,11 +221,12 @@ TEST(dijkstra_cch, monaco_fwd) {
     GTEST_SKIP() << raw_data << " not found";
   }
 
-  // load_data(raw_data, data_dir);
+  cch_test::load_data(raw_data, data_dir);
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
+  cch_test::load_customized_cost(raw_data, data_dir, w);
 
-  run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
 
 TEST(dijkstra_cch, monaco_bwd) {
@@ -233,11 +240,12 @@ TEST(dijkstra_cch, monaco_bwd) {
     GTEST_SKIP() << raw_data << " not found";
   }
 
-  load_data(raw_data, data_dir);
+  cch_test::load_data(raw_data, data_dir);
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
+  cch_test::load_customized_cost(raw_data, data_dir, w);
 
-  run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
 
 TEST(dijkstra_cch, hamburg) {
@@ -251,11 +259,12 @@ TEST(dijkstra_cch, hamburg) {
     GTEST_SKIP() << raw_data << " not found";
   }
 
-  load_data(raw_data, data_dir);
+  cch_test::load_data(raw_data, data_dir);
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
+  cch_test::load_customized_cost(raw_data, data_dir, w);
 
-  run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
 
 TEST(dijkstra_cch, switzerland) {
@@ -269,11 +278,12 @@ TEST(dijkstra_cch, switzerland) {
     GTEST_SKIP() << raw_data << " not found";
   }
 
-  load_data(raw_data, data_dir);
+  cch_test::load_data(raw_data, data_dir);
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
+  cch_test::load_customized_cost(raw_data, data_dir, w);
 
-  run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
 
 TEST(dijkstra_cch, DISABLED_germany) {
@@ -287,11 +297,12 @@ TEST(dijkstra_cch, DISABLED_germany) {
     GTEST_SKIP() << raw_data << " not found";
   }
 
-  load_data(raw_data, data_dir);
+  cch_test::load_data(raw_data, data_dir);
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
+  cch_test::load_customized_cost(raw_data, data_dir, w);
 
-  run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
 
 TEST(dijkstra_cch, karlsruhe_regbez_fwd) {
@@ -305,9 +316,10 @@ TEST(dijkstra_cch, karlsruhe_regbez_fwd) {
     GTEST_SKIP() << raw_data << " not found";
   }
 
-  load_data(raw_data, data_dir);
+  cch_test::load_data(raw_data, data_dir);
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
+  cch_test::load_customized_cost(raw_data, data_dir, w);
 
-  run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, num_samples, max_cost, dir);
 }

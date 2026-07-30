@@ -752,7 +752,7 @@ void extract(bool const with_platforms,
     }
   };
 
-  w.node_way_counter_.reserve(14'000'000'000);
+  w.node_way_counter_.reserve(14'000'000);
   {  // Pass 1: node index, blocking nodes, relations.
     pt->status("Load OSM / Pass 1").in_high(blocks.size()).out_bounds(0, 15);
 
