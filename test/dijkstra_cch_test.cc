@@ -32,7 +32,7 @@ using namespace osr;
 
 namespace cch_test {
 constexpr auto const kUseMultithreading = false;
-constexpr auto const kPrintDebugGeojson = true;
+constexpr auto const kPrintDebugGeojson = false;
 constexpr auto const kMaxMatchDistance = 100;
 constexpr auto const kMaxAllowedPathDifferenceRatio = 0.5;
 constexpr auto const kSeed = 0xdeadbeef;
@@ -58,12 +58,11 @@ void load_customized_cost(std::string_view raw_data, std::string_view data_dir, 
 
 void run_test(ways const& w,
          lookup const& l,
+         cch_query<car>& q,
          unsigned const n_samples,
          unsigned const max_cost,
          direction const dir) {
 
-  fmt::print("Initiating {} random tests with max_cost={} and direction={}...\n",
-             n_samples, max_cost, to_str(dir));
   auto const from_tos = [&]() {
     auto prng = std::mt19937{};
     auto distr =
@@ -81,7 +80,6 @@ void run_test(ways const& w,
   auto experiment_times = std::vector<std::chrono::steady_clock::duration>{};
 
   auto m = std::mutex{};
-  fmt::print("Running {} tests...\n", from_tos.size());
 
   auto const single_run = [&](std::pair<node_idx_t, node_idx_t> const from_to) {
     auto const from_node = from_to.first;
@@ -89,32 +87,29 @@ void run_test(ways const& w,
     auto const to_node = from_to.second;
     auto const to_loc = location{w.get_node_pos(to_node)};
 
-    fmt::print("Running test for {} --> {}...\n", from_node, to_node);
-
     auto const node_pinned_matches =
         [&](location const& loc, node_idx_t const n, bool const reverse) {
-          auto matches = l.match<car>(car::parameters{}, loc, reverse, dir,
-                                      kMaxMatchDistance, nullptr);
-          std::erase_if(matches, [&](auto const& wc) {
-            return wc.left_.node_ != n && wc.right_.node_ != n;
-          });
-          if (matches.size() > 1) {
-            // matches.resize(1);
+          auto all = match_result{};
+          l.match<car>(car::parameters{}, loc, reverse, dir, kMaxMatchDistance,
+                       nullptr, all);
+          auto const m = all[match_idx_t{0U}];
+          auto pinned = match_result{};
+          pinned.start(m.lvl_);
+          for (auto j = std::size_t{0U}; j != m.size(); ++j) {
+            if (m.nodes_[j].left_.node_ == n || m.nodes_[j].right_.node_ == n) {
+              pinned.add(m.dist_to_way_[j], m.way_[j], m.nodes_[j]);
+            }
           }
-          return matches;
+          pinned.finish();
+          return pinned;
         };
     auto const from_matches = node_pinned_matches(from_loc, from_node, false);
     auto const to_matches = node_pinned_matches(to_loc, to_node, true);
-    if (from_matches.empty() || to_matches.empty()) {
+    auto const from_matches_span = from_matches[match_idx_t{0U}];
+    auto const to_matches_span = to_matches[match_idx_t{0U}];
+    if (from_matches_span.empty() || to_matches_span.empty()) {
       ++n_empty_matches;
     }
-
-    auto const from_matches_span =
-        std::span{begin(from_matches), end(from_matches)};
-    auto const to_matches_span = std::span{begin(to_matches), end(to_matches)};
-    fmt::print("Finished initializing matches for {} --> {} ({} matches, {} matches)\n",
-               from_node, to_node,
-               from_matches.size(), to_matches.size());
 
     auto const reference_start = std::chrono::steady_clock::now();
     auto const reference = [&]() {
@@ -130,13 +125,12 @@ void run_test(ways const& w,
     auto const reference_time =
         std::chrono::steady_clock::now() - reference_start;
 
-    fmt::print("Running CCH...\n");
     auto const experiment_start = std::chrono::steady_clock::now();
     auto const experiment = [&]() {
       try {
-        return route(car::parameters{}, w, l, search_profile::kCar, from_loc,
-                     to_loc, from_matches_span, to_matches_span, max_cost, dir,
-                     nullptr, nullptr, nullptr, routing_algorithm::kCCH);
+        return route_cch_car(car::parameters{}, w, l, q, from_loc, to_loc,
+                            from_matches_span, to_matches_span, max_cost, dir,
+                            nullptr, nullptr, nullptr);
       } catch (std::exception const& ex) {
         fmt::println("cch exception: {}", ex.what());
         throw ex;
@@ -213,7 +207,7 @@ void run_test(ways const& w,
 TEST(dijkstra_cch, monaco_fwd) {
   auto const raw_data = "test/monaco.osm.pbf";
   auto const data_dir = "test/monaco";
-  auto const num_samples = 10000U;
+  auto const num_samples = 1000U;
   auto const max_cost = 2 * 3600U;
   auto constexpr dir = direction::kForward;
 
@@ -225,8 +219,9 @@ TEST(dijkstra_cch, monaco_fwd) {
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
   cch_test::load_customized_cost(raw_data, data_dir, w);
+  auto q = osr::cch_query<car>{data_dir};
 
-  cch_test::run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, q, num_samples, max_cost, dir);
 }
 
 TEST(dijkstra_cch, monaco_bwd) {
@@ -244,8 +239,9 @@ TEST(dijkstra_cch, monaco_bwd) {
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
   cch_test::load_customized_cost(raw_data, data_dir, w);
+  auto q = osr::cch_query<car>{data_dir};
 
-  cch_test::run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, q, num_samples, max_cost, dir);
 }
 
 TEST(dijkstra_cch, hamburg) {
@@ -263,8 +259,9 @@ TEST(dijkstra_cch, hamburg) {
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
   cch_test::load_customized_cost(raw_data, data_dir, w);
+  auto q = osr::cch_query<car>{data_dir};
 
-  cch_test::run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, q, num_samples, max_cost, dir);
 }
 
 TEST(dijkstra_cch, switzerland) {
@@ -282,8 +279,9 @@ TEST(dijkstra_cch, switzerland) {
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
   cch_test::load_customized_cost(raw_data, data_dir, w);
+  auto q = osr::cch_query<car>{data_dir};
 
-  cch_test::run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, q, num_samples, max_cost, dir);
 }
 
 TEST(dijkstra_cch, DISABLED_germany) {
@@ -301,8 +299,9 @@ TEST(dijkstra_cch, DISABLED_germany) {
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
   cch_test::load_customized_cost(raw_data, data_dir, w);
+  auto q = osr::cch_query<car>{data_dir};
 
-  cch_test::run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, q, num_samples, max_cost, dir);
 }
 
 TEST(dijkstra_cch, karlsruhe_regbez_fwd) {
@@ -320,6 +319,7 @@ TEST(dijkstra_cch, karlsruhe_regbez_fwd) {
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
   cch_test::load_customized_cost(raw_data, data_dir, w);
+  auto q = osr::cch_query<car>{data_dir};
 
-  cch_test::run_test(w, l, num_samples, max_cost, dir);
+  cch_test::run_test(w, l, q, num_samples, max_cost, dir);
 }

@@ -133,6 +133,20 @@ std::optional<path> route_cch(profile_parameters const& params,
                                 sharing_data const* sharing,
                                 elevation_storage const* elevations);
 
+std::optional<path> route_cch_car(car::parameters const& params,
+                                  ways const& w,
+                                  lookup const& l,
+                                  cch_query<car>& cch_q,
+                                  location const& from,
+                                  location const& to,
+                                  match_view_t from_match,
+                                  match_view_t to_match,
+                                  cost_t const max,
+                                  direction const dir,
+                                  bitvec<node_idx_t> const* blocked,
+                                  sharing_data const* sharing,
+                                  elevation_storage const* elevations);
+
 std::vector<std::optional<path>> route(
     profile_parameters const&,
     ways const&,

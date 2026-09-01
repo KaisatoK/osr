@@ -180,6 +180,33 @@ void valid_test(std::string_view data_dir, ways const& w) {
             ASSERT_EQ(edge.cost_, total_cost);
         }
     }
+
+    for (node_idx_t i = node_idx_t{0}; i < std::min(cc->ordering_.size(), size_t(20)); ++i) {
+        fmt::print("{}'s parent is {}.\n", i, cc->elimination_tree_.at(i));
+    }
+
+    for (auto const& [idx, sub_idxes] : utl::enumerate(cc->virtual_nodes_)) {
+        for (auto const& [sub_idx, node] : utl::enumerate(sub_idxes)) {
+            auto const ext_node = osr::cch_preprocessing::ext_node_idx_t{static_cast<node_idx_t>(idx), static_cast<std::uint16_t>(sub_idx)};
+            auto const par = cc->get_parent(ext_node);
+
+            if (sub_idx < sub_idxes.size() - 1U) {
+                auto const nxt = osr::cch_preprocessing::ext_node_idx_t{static_cast<node_idx_t>(idx), static_cast<std::uint16_t>(sub_idx + 1U)};
+                ASSERT_EQ(par.value(), nxt);
+            } else if (!cc->get_upward_edges(ext_node).empty()) {
+                auto min_node = osr::cch_preprocessing::ext_node_idx_t{static_cast<node_idx_t>(cc->ordering_.size()), 0U};
+                for (auto const& edge_idx : cc->get_upward_edges(ext_node)) {
+                    auto const& to = cc->get_edge(edge_idx).to_;
+                    if (min_node.first.v_ == cc->ordering_.size() || cc->ext_nodes_comp(to, min_node)) {
+                        min_node = to;
+                    }
+                }
+                utl::verify(par.has_value(), "Parent node for extended node {} is missing", osr::cch_preprocessing::to_string(ext_node));
+                utl::verify(!cc->ext_nodes_comp(min_node, *par), "Parent node {} is less than minimal child node {} for extended node {}",
+                            osr::cch_preprocessing::to_string(*par), osr::cch_preprocessing::to_string(min_node), osr::cch_preprocessing::to_string(ext_node));
+            }
+        }
+    }
 }
 } // namespace customization_test
 

@@ -59,8 +59,7 @@ namespace osr {
             std::array<prep::ext_edge_idx_t, kMaxPredSize> pred_;
         };
 
-        template <typename T>
-        cch_query(T&& cost_function) : cost_function_{std::forward<T>(cost_function)} {}
+        cch_query(prep::customized_cost_stored<P>&& cost_function) : cost_function_{std::forward<prep::customized_cost_stored<P>>(cost_function)} {}
 
         cch_query(std::filesystem::path const& path) : cost_function_{*prep::customized_cost_stored<P>::read(path)} {}
 
@@ -83,13 +82,13 @@ namespace osr {
             return node_entry::invalid();
         }
 
-        void add_start(node const n) {
+        void add_start(node const n, cost_t const start_cost) {
             auto const start_idx = cost_function_.get_virtual_node_idx(n);
             if (start_idx) {
                 starts_.emplace_back(n);
                 auto content = node_entry::invalid();
                 content.curr_ = n;
-                content.cost_ = 0;
+                content.cost_ = start_cost;
                 node_costs_[get_flatten_node_idx(*start_idx)] = content;
             }
         }
@@ -99,6 +98,17 @@ namespace osr {
             if (dest_idx) {
                 dests_.emplace_back(n);
             }
+        }
+
+        cost_t get_best_cost() const {
+            cost_t best_cost = kInfeasible;
+            for (auto const& dest : dests_) {
+                auto const entry = get_node_entry(dest);
+                if (entry.cost_ < best_cost) {
+                    best_cost = entry.cost_;
+                }
+            }
+            return best_cost;
         }
 
         template <typename Container>
@@ -127,8 +137,6 @@ namespace osr {
 
         bool run() {
             // first phase
-            fmt::print("=============== Beginning CCH query ==============\n");
-            fmt::print("Running first phase of CCH query with {} start nodes...\n", starts_.size());
             std::stack<prep::ext_node_idx_t> prep_order1{};
             for (auto const& start : starts_) {
                 auto start_idx = cost_function_.get_virtual_node_idx(start);
@@ -159,7 +167,6 @@ namespace osr {
             is_marked_.clear();
 
             // second phase
-            fmt::print("Running second phase of CCH query with {} destination nodes...\n", dests_.size());
             std::queue<prep::ext_node_idx_t> prep_order2{};
             for (auto const& dest : dests_) {
                 auto dest_idx = cost_function_.get_virtual_node_idx(dest);
@@ -188,8 +195,6 @@ namespace osr {
                 }
             }
             is_marked_.clear();
-
-            fmt::print("=============== Finished CCH query ==============\n");
 
             return true;
         }

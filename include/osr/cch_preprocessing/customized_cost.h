@@ -23,6 +23,7 @@
 #include "osr/routing/sharing_data.h"
 #include "osr/routing/profile.h"
 #include "osr/cch_preprocessing/node_ordering.h"
+#include "osr/cch_preprocessing/elimination_tree.h"
 #include "osr/cch_preprocessing/profile_name.h"
 
 namespace osr::cch_preprocessing {
@@ -40,12 +41,13 @@ namespace osr::cch_preprocessing {
         static constexpr auto kFilename = profile_name<P>::value;
 
         void initialize(node_ordering const& ordering) {
-            ordering_       = ordering;
-            virtual_nodes_  = vecvec<node_idx_t, node>();
-            idx_ranges_     = vec_map<node_idx_t, std::uint32_t>();
-            extended_edges_ = vec_map<ext_edge_idx_t, ext_edge>();
-            upward_edges_   = vecvec<node_idx_t, ext_edge_idx_t>();
-            downward_edges_ = vecvec<node_idx_t, ext_edge_idx_t>();
+            ordering_           = ordering;
+            virtual_nodes_      = vecvec<node_idx_t, node>();
+            idx_ranges_         = vec_map<node_idx_t, std::uint32_t>();
+            extended_edges_     = vec_map<ext_edge_idx_t, ext_edge>();
+            elimination_tree_   = vec_map<node_idx_t, node_idx_t>();
+            upward_edges_       = vecvec<node_idx_t, ext_edge_idx_t>();
+            downward_edges_     = vecvec<node_idx_t, ext_edge_idx_t>();
         }
 
         std::vector<ext_edge> trace_sg_edge(ext_edge_idx_t const& edge_idx) const {
@@ -110,11 +112,17 @@ namespace osr::cch_preprocessing {
         }
 
         std::optional<ext_node_idx_t> get_parent(ext_node_idx_t const& idx) const {
-            if (get_upward_edges(idx).empty()) {
+            utl::verify(idx.first < virtual_nodes_.size(), "node index {} out of bounds, max {}", idx.first, virtual_nodes_.size());
+            utl::verify(idx.second < virtual_nodes_[idx.first].size(), "sub-node index {} out of bounds, max {}", idx.second, virtual_nodes_[idx.first].size());
+            if (idx.second != virtual_nodes_[idx.first].size() - 1U) {
+                return ext_node_idx_t{idx.first, static_cast<std::uint16_t>(idx.second + 1U)};
+            }
+            if (elimination_tree_.at(idx.first) == node_idx_t::invalid()) {
                 return std::nullopt;
             }
-            utl::verify(get_upward_edges(idx).front() < extended_edges_.size(), "parent edge index {} of {} out of bounds, max {}", get_upward_edges(idx).front(), to_string(idx), extended_edges_.size());
-            return extended_edges_[get_upward_edges(idx).front()].to_;
+            auto const parent = elimination_tree_.at(idx.first);
+            utl::verify(parent < virtual_nodes_.size(), "parent node index {} out of bounds, max {}", parent, virtual_nodes_.size());
+            return ext_node_idx_t{parent, 0U};
         }
 
         std::optional<ext_node_idx_t> get_parent(node const& n) const {
@@ -157,6 +165,7 @@ namespace osr::cch_preprocessing {
         node_ordering ordering_;
         vecvec<node_idx_t, ext_edge_idx_t> upward_edges_, downward_edges_;
         vecvec<node_idx_t, node> virtual_nodes_;
+        vec_map<node_idx_t, node_idx_t> elimination_tree_;
         vec_map<node_idx_t, std::uint32_t> idx_ranges_;
         vec_map<ext_edge_idx_t, ext_edge> extended_edges_;
     };
@@ -361,9 +370,9 @@ namespace osr::cch_preprocessing {
                     });
 
                     for (auto const& uv : get_downward_edges(u_idx)) {
-                        // if (!feasible_check(get_rev_edge(uv), get_rev_edge(uv)) && !feasible_check(uv, uv)) {
-                        //     continue;
-                        // }
+                        if (!feasible_check(get_rev_edge(uv), get_rev_edge(uv)) && !feasible_check(uv, uv)) {
+                            continue;
+                        }
 
                         auto const v_idx = get_edge(uv).to_;
                         auto const& v_edges = get_upward_edges(v_idx);
@@ -380,9 +389,9 @@ namespace osr::cch_preprocessing {
                                 break;
                             }
 
-                            // if (!feasible_check(uv, vw) && !feasible_check(get_rev_edge(vw), get_rev_edge(uv))) {
-                            //     continue;
-                            // }
+                            if (!feasible_check(uv, vw) && !feasible_check(get_rev_edge(vw), get_rev_edge(uv))) {
+                                continue;
+                            }
 
                             while (!get_upward_edges(u_idx).empty() && u_edge_it != get_upward_edges(u_idx).begin() && ext_nodes_comp(w_idx, get_edge(*std::prev(u_edge_it)).to_)) {
                                 u_edge_it = std::prev(u_edge_it);
@@ -400,74 +409,18 @@ namespace osr::cch_preprocessing {
                 }
             );
 
-            fmt::print("Second valid check()\n");
-            utl::verify(valid_check() == true, "Customized cost graph is invalid after customization");
-
             pt->update(ordering_.size());
         }
 
-        bool valid_check() {
-            for_each_vir_node<false>(
-                [&](node const&, ext_node_idx_t const& u_idx) {
-                    std::vector<ext_edge_idx_t> seen;
-                    for (auto const& uv : get_upward_edges(u_idx)) {
-                        utl::verify(get_edge(uv).from_ == u_idx, "Edge from {} to {} has incorrect from node {}", to_string(u_idx), to_string(get_edge(uv).to_), to_string(get_edge(uv).from_));
-                        utl::verify(get_edge(uv).to_ != u_idx, "Edge from {} to {} has same from and to node", to_string(u_idx), to_string(get_edge(uv).to_));
-                        utl::verify(ext_nodes_comp(u_idx, get_edge(uv).to_), "Edge from {} to {} is not upward", to_string(u_idx), to_string(get_edge(uv).to_));
-
-                        auto const& v_idx = get_edge(uv).to_;
-                        utl::verify(seen.empty() || std::find(seen.begin(), seen.end(), uv) == seen.end(), "Duplicate edge from {} to {}", to_string(u_idx), to_string(v_idx));
-                        seen.emplace_back(uv);
-                    }
-                    seen.clear();
-
-                    for (auto const& uv : get_downward_edges(u_idx)) {
-                        utl::verify(get_edge(uv).from_ == u_idx, "Edge from {} to {} has incorrect from node {}", to_string(u_idx), to_string(get_edge(uv).to_), to_string(get_edge(uv).from_));
-                        utl::verify(get_edge(uv).to_ != u_idx, "Edge from {} to {} has same from and to node", to_string(u_idx), to_string(get_edge(uv).to_));
-                        utl::verify(ext_nodes_comp(get_edge(uv).to_, u_idx), "Edge from {} to {} is not downward", to_string(u_idx), to_string(get_edge(uv).to_));
-
-                        auto const& v_idx = get_edge(uv).from_;
-                        utl::verify(seen.empty() || std::find(seen.begin(), seen.end(), uv) == seen.end(), "Duplicate edge from {} to {}", to_string(u_idx), to_string(v_idx));
-                        seen.emplace_back(uv);
-                    }
-                }
-            );
-
-            auto const checkExists = [&](auto const from, auto const to, auto const cost) -> bool {
-                if (ext_nodes_comp(from, to)) {
-                    auto const edges = get_upward_edges(from);
-                    for (auto const& edge : edges) {
-                        auto const e = get_edge(edge);
-                        if (e.from_ == from && e.to_ == to && e.cost_ == cost) {
-                            return true;
-                        }
-                    }
-                } else {
-                    auto const edges = get_downward_edges(from);
-                    for (auto const& edge : edges) {
-                        auto const e = get_edge(edge);
-                        if (e.from_ == from && e.to_ == to && e.cost_ == cost) {
-                            return true;
-                        }
-                    }
-                }
-                return false;
-            };
-
-            for (auto const& edge : extended_edges_) {
-                utl::verify(checkExists(edge.second.from_, edge.second.to_, edge.second.cost_), "Edge from {} to {} with cost {} does not exist in the graph", to_string(edge.second.from_), to_string(edge.second.to_), edge.second.cost_);
-            }
-
-            return true;
-        }
-
-        customized_cost_stored<P> store() {
+        customized_cost_stored<P> store(vec_map<node_idx_t, node_idx_t>&& elimination_tree) {
             auto pt = utl::get_active_progress_tracker_or_activate("osr-cch-preprocess");
 
             pt->status("Store customized cost").in_high(ordering_.size()).out_bounds(80, 100);
 
             customized_cost_stored<P> stored;
             stored.initialize(ordering_);
+
+            stored.elimination_tree_ = std::move(elimination_tree);
             
             std::uint32_t total_idxes = 0;
             for (auto const& nodes : virtual_nodes_) {
