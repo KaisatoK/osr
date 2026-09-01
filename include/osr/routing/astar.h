@@ -2,7 +2,6 @@
 
 #include <cassert>
 #include <cstdint>
-
 #include <algorithm>
 #include <limits>
 #include <vector>
@@ -63,19 +62,11 @@ struct astar {
                  ways const& w,
                  sharing_data const* sharing,
                  label const l) {
-    add_start(params, w, sharing, l, duration_from_cost(l.cost()));
-  }
-
-  void add_start(P::parameters const& params,
-                 ways const& w,
-                 sharing_data const* sharing,
-                 label const l,
-                 duration_t const duration) {
     utl::verify(!destinations_.empty(),
                 "astar: add_destination must be called before add_start");
     auto const heur = heuristic(params, w, sharing, l.get_node().get_node());
     if (cost_[l.get_node().get_key()].update(l, l.get_node(), l.cost(),
-                                             node::invalid(), duration)) {
+                                             node::invalid())) {
       auto const cost_with_heur = l.cost() + heur;
       if constexpr (kDebug) {
         std::cout << "START ";
@@ -134,7 +125,6 @@ struct astar {
            ways const& w,
            ways::routing const& r,
            cost_t const max,
-           std::optional<routing_time_t> const start_time,
            bitvec<node_idx_t> const* blocked,
            sharing_data const* sharing,
            elevation_storage const* elevations) {
@@ -179,13 +169,10 @@ struct astar {
       }
 
       P::template adjacent<SearchDir, WithBlocked>(
-          params, r, w.timezones_, curr_node,
-          cost_.at(curr_node.get_key()).duration(curr_node), start_time,
-          blocked, sharing, elevations,
-          [&](node const neighbor, std::uint32_t const cost,
-              duration_t const duration, distance_t, way_idx_t const way,
-              std::uint16_t, std::uint16_t, elevation_storage::elevation,
-              bool const track) {
+          params, r, curr_node, blocked, sharing, elevations,
+          [&](node const neighbor, std::uint32_t const cost, distance_t,
+              way_idx_t const way, std::uint16_t, std::uint16_t,
+              elevation_storage::elevation, bool const track) {
             if constexpr (kDebug) {
               std::cout << "  NEIGHBOR ";
               neighbor.print(std::cout, w);
@@ -199,11 +186,9 @@ struct astar {
               max_reached_ = true;
               return;
             }
-            auto const total_duration = clamp_add_duration(
-                cost_.at(curr_node.get_key()).duration(curr_node), duration);
-            if (heur < max && cost_[neighbor.get_key()].update(
-                                  l, neighbor, static_cast<cost_t>(total),
-                                  curr_node, total_duration)) {
+            if (heur < max &&
+                cost_[neighbor.get_key()].update(
+                    l, neighbor, static_cast<cost_t>(total), curr_node)) {
               auto next = label{neighbor, static_cast<cost_t>(heur)};
               next.track(l, r, way, neighbor.get_node(), track);
               pq_.push(std::move(next));
@@ -225,39 +210,23 @@ struct astar {
            ways const& w,
            ways::routing const& r,
            cost_t const max,
-           std::optional<routing_time_t> const start_time,
            bitvec<node_idx_t> const* blocked,
            sharing_data const* sharing,
            elevation_storage const* elevations,
            direction const dir) {
     if (blocked == nullptr) {
       return dir == direction::kForward
-                 ? run<direction::kForward, false>(params, w, r, max,
-                                                   start_time, blocked, sharing,
-                                                   elevations)
-                 : run<direction::kBackward, false>(params, w, r, max,
-                                                    start_time, blocked,
+                 ? run<direction::kForward, false>(params, w, r, max, blocked,
+                                                   sharing, elevations)
+                 : run<direction::kBackward, false>(params, w, r, max, blocked,
                                                     sharing, elevations);
     } else {
       return dir == direction::kForward
-                 ? run<direction::kForward, true>(params, w, r, max, start_time,
-                                                  blocked, sharing, elevations)
-                 : run<direction::kBackward, true>(params, w, r, max,
-                                                   start_time, blocked, sharing,
-                                                   elevations);
+                 ? run<direction::kForward, true>(params, w, r, max, blocked,
+                                                  sharing, elevations)
+                 : run<direction::kBackward, true>(params, w, r, max, blocked,
+                                                   sharing, elevations);
     }
-  }
-
-  bool run(P::parameters const& params,
-           ways const& w,
-           ways::routing const& r,
-           cost_t const max,
-           bitvec<node_idx_t> const* blocked,
-           sharing_data const* sharing,
-           elevation_storage const* elevations,
-           direction const dir) {
-    return run(params, w, r, max, std::nullopt, blocked, sharing, elevations,
-               dir);
   }
 
   static geo::latlng get_node_pos(ways const& w,

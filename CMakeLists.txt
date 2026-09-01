@@ -30,7 +30,7 @@ option(OSR_MIMALLOC "use mimalloc" OFF)
 if (OSR_MIMALLOC)
     set(CISTA_USE_MIMALLOC ON)
     set(TILES_MIMALLOC ON)
-endif ()
+endif()
 
 if (NOT DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
     if (OSR_MIMALLOC)
@@ -108,8 +108,7 @@ else ()
             -Wall
             -Wextra
             -Wno-changes-meaning
-            -Wno-maybe-uninitialized
-            -Wno-class-memaccess)
+            -Wno-maybe-uninitialized)
 endif ()
 
 # --- LIB ---
@@ -118,19 +117,16 @@ add_library(osr ${osr-src})
 target_include_directories(osr PUBLIC include)
 target_compile_features(osr PUBLIC cxx_std_23)
 target_compile_options(osr PRIVATE ${osr-compile-options})
-set(osr-resource-libs
-        ianatzdb-res
-)
 target_link_libraries(osr
-        osm
+        osmium
         zlibstatic
         protozero
+        expat
         geo
         cista
         utl
-        date-tz
+        tiles-import-library
         rtree
-        tg
         unordered_dense
         boost-thread
         boost-iostreams
@@ -139,14 +135,14 @@ target_link_libraries(osr
 
 # --- MAIN ---
 add_executable(osr-extract exe/extract.cc)
-target_link_libraries(osr-extract osr conf ${osr-resource-libs})
+target_link_libraries(osr-extract osr)
 
 add_executable(osr-benchmark exe/benchmark.cc)
-target_link_libraries(osr-benchmark osr conf ${osr-resource-libs})
+target_link_libraries(osr-benchmark osr)
 
 file(GLOB_RECURSE osr-backend-src exe/backend/*.cc)
 add_executable(osr-backend ${osr-backend-src})
-target_link_libraries(osr-backend osr web-server conf boost-json ${osr-resource-libs})
+target_link_libraries(osr-backend osr web-server conf boost-json)
 target_include_directories(osr-backend PRIVATE exe/backend/include)
 
 # --- TEST ---
@@ -157,11 +153,7 @@ configure_file(
 file(GLOB_RECURSE osr-test-files test/*cc)
 add_executable(osr-test ${osr-test-files})
 target_include_directories(osr-test PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_link_libraries(osr-test gmock osr boost-json expat ${osr-resource-libs})
-add_test(NAME osr-test COMMAND $<TARGET_FILE:osr-test>)
-set_tests_properties(osr-test PROPERTIES
-        LABELS osr
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(osr-test gmock osr boost-json)
 
 # --- MIMALLOC ---
 if (OSR_MIMALLOC)
