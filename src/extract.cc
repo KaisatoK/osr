@@ -78,152 +78,37 @@ bool is_number(std::string_view s) {
          utl::all_of(s, [](char const c) { return std::isdigit(c); });
 }
 
-std::optional<resolved_restriction::type> parse_turn_restriction_type(
-    std::string_view const value) {
-  if (value.starts_with("no"sv)) {
-    return resolved_restriction::type::kNo;
-  }
-  if (value.starts_with("only"sv)) {
-    return resolved_restriction::type::kOnly;
-  }
-  return std::nullopt;
-}
-
-std::optional<conditional_turn_restriction> parse_conditional_turn_restriction(
-    std::string_view const value) {
-  auto const at = value.find('@');
-  if (at == std::string_view::npos) {
-    return std::nullopt;
-  }
-
-  auto const type = parse_turn_restriction_type(trim(value.substr(0U, at)));
-  auto const condition = trim(value.substr(at + 1U));
-  if (!type.has_value() || condition.empty()) {
-    return std::nullopt;
-  }
-  return conditional_turn_restriction{*type, condition};
-}
-
-template <typename T, typename Value>
-void set_hgv_info_value(hgv_way_info& info,
-                        hgv_info_field const field,
-                        T hgv_way_info::* member,
-                        std::optional<Value> const value) {
-  if (!value.has_value()) {
-    return;
-  }
-  info.fields_ |= to_mask(field);
-  info.*member = *value;
-}
-
-std::string_view pick_hgv_variant(std::string_view base, std::string_view hgv) {
-  return hgv.empty() ? base : hgv;
-}
-
-std::optional<access_value> get_access_value(std::string_view value) {
-  switch (cista::hash(value)) {
-    case cista::hash("yes"): return access_value::kYes;
-    case cista::hash("designated"): return access_value::kDesignated;
-    case cista::hash("permissive"): return access_value::kPermissive;
-    case cista::hash("private"): return access_value::kPrivate;
-    case cista::hash("delivery"): return access_value::kDelivery;
-    case cista::hash("destination"): return access_value::kDestination;
-    case cista::hash("no"): return access_value::kNo;
-    case cista::hash("discouraged"): return access_value::kDiscouraged;
-    default: return std::nullopt;
-  }
-}
-
-std::optional<hgv_way_info> get_hgv_way_info(tags const& t) {
-  auto info = hgv_way_info{};
-  // Zero the padding too (all members default to 0 / kUnknown == 0) so the
-  // serialized output is byte-reproducible, matching get_way_properties.
-  std::memset(&info, 0, sizeof(info));
-
-  auto const hgv_access = get_access_value(t.hgv_);
-  auto const hgv_fwd = get_access_value(t.hgv_forward_);
-  auto const hgv_bwd = get_access_value(t.hgv_backward_);
-
-  if (hgv_access.has_value()) {
-    info.fields_ |= to_mask(hgv_info_field::kAccessFwd);
-    info.hgv_access_fwd_ = static_cast<std::uint8_t>(*hgv_access);
-    info.fields_ |= to_mask(hgv_info_field::kAccessBwd);
-    info.hgv_access_bwd_ = static_cast<std::uint8_t>(*hgv_access);
-  }
-  if (hgv_fwd.has_value()) {
-    info.fields_ |= to_mask(hgv_info_field::kAccessFwd);
-    info.hgv_access_fwd_ = static_cast<std::uint8_t>(*hgv_fwd);
-  }
-  if (hgv_bwd.has_value()) {
-    info.fields_ |= to_mask(hgv_info_field::kAccessBwd);
-    info.hgv_access_bwd_ = static_cast<std::uint8_t>(*hgv_bwd);
-  }
-
-  set_hgv_info_value(
-      info, hgv_info_field::kMaxSpeed, &hgv_way_info::maxspeed_km_h_,
-      to_integer<std::uint8_t>(parse_speed_km_h(t.max_speed_hgv_)));
-  set_hgv_info_value(
-      info, hgv_info_field::kMaxLength, &hgv_way_info::maxlength_cm_,
-      to_integer<std::uint16_t>(
-          parse_length_m(pick_hgv_variant(t.max_length_, t.max_length_hgv_)),
-          100.0));
-  set_hgv_info_value(info, hgv_info_field::kMaxWeightRating,
-                     &hgv_way_info::maxweightrating_100kg_,
-                     to_integer<std::uint16_t>(
-                         parse_weight_t(pick_hgv_variant(
-                             t.max_weightrating_, t.max_weightrating_hgv_)),
-                         10.0));
-  set_hgv_info_value(
-      info, hgv_info_field::kMaxHeight, &hgv_way_info::maxheight_cm_,
-      to_integer<std::uint16_t>(parse_length_m(t.max_height_), 100.0));
-  set_hgv_info_value(
-      info, hgv_info_field::kMaxWidth, &hgv_way_info::maxwidth_cm_,
-      to_integer<std::uint16_t>(parse_length_m(t.max_width_), 100.0));
-  set_hgv_info_value(
-      info, hgv_info_field::kMaxWeight, &hgv_way_info::maxweight_100kg_,
-      to_integer<std::uint16_t>(parse_weight_t(t.max_weight_), 10.0));
-  set_hgv_info_value(
-      info, hgv_info_field::kMaxAxleLoad, &hgv_way_info::maxaxleload_100kg_,
-      to_integer<std::uint16_t>(parse_weight_t(t.max_axle_load_), 10.0));
-  set_hgv_info_value(info, hgv_info_field::kMaxAxles, &hgv_way_info::maxaxles_,
-                     to_integer<std::uint8_t>(parse_unitless(t.max_axles_)));
-
-  if (auto const hazmat = get_access_value(t.hazmat_); hazmat.has_value()) {
-    info.fields_ |= to_mask(hgv_info_field::kHazmat);
-    info.hazmat_access_ = static_cast<std::uint8_t>(*hazmat);
-  }
-
-  if (auto const hazmat_water = get_access_value(t.hazmat_water_);
-      hazmat_water.has_value()) {
-    info.fields_ |= to_mask(hgv_info_field::kHazmatWater);
-    info.hazmat_water_access_ = static_cast<std::uint8_t>(*hazmat_water);
-  }
-
-  if (auto const trailer = get_access_value(t.hgv_trailer_);
-      trailer.has_value()) {
-    info.fields_ |= to_mask(hgv_info_field::kTrailer);
-    info.trailer_access_ = static_cast<std::uint8_t>(*trailer);
-  }
-
-  return info.fields_ == 0U ? std::nullopt : std::optional{info};
-}
-
-bool is_big_street(tags const& t) {
+std::uint8_t get_importance(tags const& t) {
   switch (cista::hash(t.highway_)) {
-    case cista::hash("motorway"):
-    case cista::hash("motorway_link"):
-    case cista::hash("trunk"):
-    case cista::hash("trunk_link"):
-    case cista::hash("primary"):
-    case cista::hash("primary_link"):
+    case cista::hash("pedestrian"):
+    case cista::hash("busway"):
+    case cista::hash("footway"):
+    case cista::hash("cycleway"):
+    case cista::hash("bridleway"):
+    case cista::hash("steps"):
+    case cista::hash("corridor"):
+    case cista::hash("path"): return 0;
+    case cista::hash("track"): return 1;
+    case cista::hash("living_street"):
+    case cista::hash("service"): return 2;
+    case cista::hash("residential"): return 3;
+    case cista::hash("road"): return 4;
+    case cista::hash("unclassified"):
+    case cista::hash("tertiary"):
+    case cista::hash("tertiary_link"): return 5;
     case cista::hash("secondary"):
     case cista::hash("secondary_link"):
-    case cista::hash("tertiary"):
-    case cista::hash("tertiary_link"):
-    case cista::hash("unclassified"): return true;
-    default: return false;
+    case cista::hash("primary"):
+    case cista::hash("primary_link"): return 6;
+    case cista::hash("trunk"):
+    case cista::hash("trunk_link"):
+    case cista::hash("motorway"):
+    case cista::hash("motorway_link"): return 7;
+    default: return 4;
   }
 }
+
+bool is_big_street(std::uint8_t const importance) { return importance > 4; }
 
 speed_limit get_speed_limit(tags const& t) {
   if (auto const speed = parse_speed_km_h(t.max_speed_); speed.has_value()) {
@@ -303,7 +188,7 @@ way_properties get_way_properties(
   p.motor_vehicle_no_ =
       (t.motor_vehicle_ == "no"sv) || (t.vehicle_ == override::kBlacklist);
   p.has_toll_ = t.toll_;
-  p.is_big_street_ = is_big_street(t);
+  p.is_big_street_ = is_big_street(get_importance(t));
   p.in_route_ = t.is_route_ && t.is_public_transport_route();
   p.is_bus_accessible_with_penalty_ =
       is_accessible_with_penalty<bus_profile>(t, obj_type);
@@ -477,12 +362,7 @@ struct way_handler : public osmium::handler::Handler {
 
     w_.way_osm_idx_.push_back(to_osm_way_idx(w.id()));
     w_.r_->way_properties_.emplace_back(p);
-    if (hgv_info.has_value()) {
-      w_.r_->way_hgv_info_.emplace_back(way_idx, *hgv_info);
-    }
-    if (p.has_conditionals()) {
-      w_.r_->way_conditionals_.emplace_back(way_idx, conditional_builder.way_);
-    }
+    w_.r_->way_importance_.emplace_back(get_importance(t));
 
     w_.way_polylines_.emplace_back(w.nodes() |
                                    std::views::transform(get_point));
@@ -918,7 +798,6 @@ void extract(bool const with_platforms,
   w.sync();
 
   w.connect_ways();
-  w.build_components();
 
   auto r = std::vector<resolved_restriction>{};
   {  // Pass 3: node properties + turn restrictions.
@@ -1038,6 +917,7 @@ void extract(bool const with_platforms,
         pt->update_fn());
   }
 
+  w.build_components_and_importance();
   w.add_restriction(r);
 
   utl::sort(w.r_->multi_level_elevators_);
