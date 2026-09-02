@@ -12,7 +12,6 @@
 #include "osr/routing/profiles/ferry.h"
 #include "osr/routing/profiles/foot.h"
 #include "osr/routing/profiles/railway.h"
-#include "osr/routing/profiles/hgv.h"
 
 namespace osr::cch_preprocessing {
 
@@ -82,10 +81,6 @@ namespace osr::cch_preprocessing {
     template <>
     struct profile_name<ferry> {
         static constexpr std::string_view const value = "cc_ferry.bin";
-    };
-    template <>
-    struct profile_name<hgv> {
-        static constexpr std::string_view const value = "cc_hgv.bin";
     };
     
 } // namespace osr::cch_preprocessing

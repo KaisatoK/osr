@@ -150,10 +150,10 @@ void valid_test(std::string_view data_dir, ways const& w) {
         auto const to = cc->get_virtual_node(edge.to_);
         
         bool found = false;
-        car::template adjacent<direction::kForward, false>(car::parameters{}, *w.r_, w.timezones_, from, duration_t{0}, std::nullopt, nullptr, nullptr, nullptr, 
+        car::template adjacent<direction::kForward, false>(car::parameters{}, *w.r_, from, nullptr, nullptr, nullptr, 
             [&](car::node const curr_to,
                 std::uint32_t const curr_cost,
-                duration_t, distance_t, way_idx_t const, std::uint16_t, std::uint16_t, elevation_storage::elevation, bool const) {
+                distance_t, way_idx_t const, std::uint16_t, std::uint16_t, elevation_storage::elevation, bool const) {
                 
                 found |= curr_to == to && curr_cost == edge.cost_;
             }

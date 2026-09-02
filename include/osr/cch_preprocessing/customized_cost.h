@@ -305,10 +305,10 @@ namespace osr::cch_preprocessing {
             pt->status("Transfer edges cost").in_high(ordering_.size()).out_bounds(10, 30);
             for_each_vir_node<false>(
                 [&](node const& from, ext_node_idx_t const& from_idx) {
-                    P::template adjacent<direction::kForward, false>(params, *w.r_, w.timezones_, from, duration_t{0}, std::nullopt, blocked, additional, elevation, 
-                        [&](node const to,
-                            std::uint32_t const cost,
-                            duration_t, distance_t, way_idx_t const, std::uint16_t, std::uint16_t, elevation_storage::elevation, bool const) {
+                    P::template adjacent<direction::kForward, false>(params, *w.r_, from, blocked, additional, elevation, 
+                        [&](node const to, std::uint32_t const cost,
+                            distance_t, way_idx_t const, std::uint16_t, std::uint16_t, 
+                            elevation_storage::elevation, bool const) {
                                 
                             utl::verify(get_virtual_node_idx(to).has_value(), "Virtual node index for node {} not found", to.get_node());
                             auto const to_idx = *get_virtual_node_idx(to);

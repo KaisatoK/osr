@@ -232,13 +232,13 @@ int main(int argc, char const* argv[]) {
                       routing_algorithm::kCCH);
             auto const end_time = std::chrono::steady_clock::now();
 
-            /*std::cout << "took "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(
-                             middle_time - start_time)
-                      << " vs "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(
-                             end_time - middle_time)
-                      << std::endl;*/
+            // std::cout << "took "
+            //           << std::chrono::duration_cast<std::chrono::milliseconds>(
+            //                  middle_time - start_time)
+            //           << " vs "
+            //           << std::chrono::duration_cast<std::chrono::milliseconds>(
+            //                  end_time - middle_time)
+            //           << std::endl;
 
             utl::verify(!d_res.has_value() && !q_res.has_value() ||
                             d_res.has_value() && q_res.has_value() &&
@@ -253,7 +253,7 @@ int main(int argc, char const* argv[]) {
           } else {
             if (w.r_->way_component_[w.r_->node_ways_[start][0]] !=
                 w.r_->way_component_[w.r_->node_ways_[end][0]]) {
-              std::cout << "skipping" << std::endl;
+              // std::cout << "skipping" << std::endl;
               continue;
             }
             d.reset(opt.max_dist_);
@@ -264,23 +264,23 @@ int main(int argc, char const* argv[]) {
             auto const ends = set_end<P>(params, q, w, end);
             auto const start_time = std::chrono::steady_clock::now();
             d.template run<direction::kForward, false>(
-                params, w, *w.r_, opt.max_dist_, {}, nullptr, nullptr,
+                params, w, *w.r_, opt.max_dist_, nullptr, nullptr,
                 elevations.get());
             auto const middle_time = std::chrono::steady_clock::now();
             q.run();
             auto const end_time = std::chrono::steady_clock::now();
-            /*std::cout << "took "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(
-                             middle_time - start_time)
-                      << " vs "
-                      << std::chrono::duration_cast<std::chrono::milliseconds>(
-                             end_time - middle_time)
-                      << std::endl;*/
+            // std::cout << "took "
+            //           << std::chrono::duration_cast<std::chrono::milliseconds>(
+            //                  middle_time - start_time)
+            //           << " vs "
+            //           << std::chrono::duration_cast<std::chrono::milliseconds>(
+            //                  end_time - middle_time)
+            //           << std::endl;
             auto const q_res = q.get_best_cost();
             if (!utl::any_of(ends, [&](auto&& e) {
                   auto const it = d.cost_.find(e.get_node().get_key());
                   auto const d_res = d.get_cost(e.get_node());
-                  std::cout << " " << d_res << " vs " << q_res << std::endl;
+                  // std::cout << " " << d_res << " vs " << q_res << std::endl;
                   return q_res == d_res;
                 })) {
 
