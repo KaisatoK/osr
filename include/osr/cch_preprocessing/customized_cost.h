@@ -73,24 +73,22 @@ namespace osr::cch_preprocessing {
             return res;
         }
 
-        ext_node get_parent(ext_node const& idx, elimination_tree const& tree) const {
+        void get_parent(ext_node const& idx , ext_node& parent, elimination_tree const& tree) const {
             utl::verify(idx.first() < virtual_nodes_.size(), "node index {} out of bounds, max {}", idx.first(), virtual_nodes_.size());
             utl::verify(idx.second() < virtual_nodes_[idx.first()].size(), "sub-node index {} out of bounds, max {}", idx.second(), virtual_nodes_[idx.first()].size());
             if (idx.second() != virtual_nodes_[idx.first()].size() - 1U) {
-                return ext_node{
-                    .primary_idx_   = idx.first(), 
-                    .sub_idx_       = static_cast<std::uint16_t>(idx.second() + 1U)
-                };
+                parent.primary_idx_   = idx.first();
+                parent.sub_idx_       = static_cast<std::uint16_t>(idx.second() + 1U);
+                return;
             }
             if (tree.tree_.at(idx.first()) == node_idx_t::invalid()) {
-                return ext_node::invalid();
+                parent = ext_node::invalid();
+                return;
             }
-            auto const parent = tree.tree_.at(idx.first());
-            utl::verify(parent < virtual_nodes_.size(), "parent node index {} out of bounds, max {}", parent, virtual_nodes_.size());
-            return ext_node{
-                .primary_idx_   = parent, 
-                .sub_idx_       = 0U
-            };
+            auto const parent_idx = tree.tree_.at(idx.first());
+            utl::verify(parent_idx < virtual_nodes_.size(), "parent node index {} out of bounds, max {}", parent_idx, virtual_nodes_.size());
+            parent.primary_idx_   = parent_idx; 
+            parent.sub_idx_       = 0U;
         }
 
         ext_edge get_edge(ext_edge_idx_t const& idx) const {

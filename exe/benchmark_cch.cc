@@ -190,8 +190,10 @@ int main(int argc, char const* argv[]) {
   osr::cch_preprocessing::preprocessed_data::load_metric_independent(opt.data_dir_);
 
   auto threads = std::vector<std::thread>(std::max(1U, opt.threads_));
-  auto results = std::vector<benchmark_result>{};
-  results.reserve(opt.n_queries_);
+  auto results_cch = std::vector<benchmark_result>{};
+  results_cch.reserve(opt.n_queries_);
+  auto results_dijkstra = std::vector<benchmark_result>{};
+  results_dijkstra.reserve(opt.n_queries_);
 
   auto const run_benchmark = [&]<Profile P>(
                                  typename P::parameters const& params,
@@ -199,13 +201,15 @@ int main(int argc, char const* argv[]) {
                                  const char* profile_label) {
 
     osr::cch_preprocessing::preprocessed_data::load_customized_cost<P>(opt.data_dir_);
-    results.clear();
+    results_cch.clear();
+    results_dijkstra.clear();
     auto i = std::atomic_size_t{0U};
     auto m = std::mutex{};
     for (auto& t : threads) {
       t = std::thread([&]() {
         auto d = dijkstra<P>{};
         auto q = cch_query<P>{};
+        q.initialize();
         auto h = cista::BASE_HASH;
         auto n = 0U;
         while (i.fetch_add(1U) < opt.n_queries_ - 1) {
@@ -249,9 +253,12 @@ int main(int argc, char const* argv[]) {
                         "not equal {} {}", d_res->cost_, q_res->cost_);
             {
               auto const guard = std::lock_guard{m};
-              results.emplace_back(benchmark_result{std::chrono::duration_cast<
+              results_cch.emplace_back(benchmark_result{std::chrono::duration_cast<
                   decltype(benchmark_result::duration_)>(end_time -
                                                          middle_time)});
+              results_dijkstra.emplace_back(benchmark_result{std::chrono::duration_cast<
+                  decltype(benchmark_result::duration_)>(middle_time -
+                                                         start_time)});
             }
           } else {
             if (w.r_->way_component_[w.r_->node_ways_[start][0]] !=
@@ -291,8 +298,11 @@ int main(int argc, char const* argv[]) {
             }
             {
               auto const guard = std::lock_guard{m};
-              results.emplace_back(benchmark_result{std::chrono::duration_cast<
+              results_cch.emplace_back(benchmark_result{std::chrono::duration_cast<
                   decltype(benchmark_result::duration_)>(end_time -
+                                                         middle_time)});
+              results_dijkstra.emplace_back(benchmark_result{std::chrono::duration_cast<
+                  decltype(benchmark_result::duration_)>(middle_time -
                                                          start_time)});
             }
           }
@@ -304,11 +314,15 @@ int main(int argc, char const* argv[]) {
       t.join();
     }
 
-    std::ranges::sort(results, std::less<>{}, [](benchmark_result const& res) {
+    std::ranges::sort(results_cch, std::less<>{}, [](benchmark_result const& res) {
+      return res.duration_;
+    });
+    std::ranges::sort(results_dijkstra, std::less<>{}, [](benchmark_result const& res) {
       return res.duration_;
     });
 
-    print_result(results, profile_label);
+    print_result(results_cch, profile_label);
+    print_result(results_dijkstra, profile_label);
   };
 
   auto const run_speed_benchmark = [&](search_profile const profile,

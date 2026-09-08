@@ -187,10 +187,11 @@ void valid_test(std::string_view data_dir, ways const& w) {
         fmt::print("{}'s parent is {}.\n", i, elimination_tree.tree_.at(i));
     }
 
+    osr::cch_preprocessing::ext_node par = osr::cch_preprocessing::ext_node::invalid();
     for (auto const& [idx, sub_idxes] : utl::enumerate(cc.virtual_nodes_)) {
         for (auto const& [sub_idx, node] : utl::enumerate(sub_idxes)) {
             auto const ext_node = osr::cch_preprocessing::ext_node::to_ext_node(idx, sub_idx);
-            auto const par = cc.get_parent(ext_node, elimination_tree);
+            cc.get_parent(ext_node, par, elimination_tree);
 
             if (sub_idx < sub_idxes.size() - 1U) {
                 auto const nxt = osr::cch_preprocessing::ext_node::to_ext_node(idx, sub_idx + 1U);

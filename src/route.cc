@@ -648,6 +648,8 @@ std::optional<path> route_cch(typename P::parameters const& params,
     }
   };
 
+  cch_q.initialize();
+
   for (auto const [i, start] : utl::enumerate(from_match)) {
     if (utl::none_of(to_match, [&](way_candidate const& end) {
           return w.r_->way_component_[start.way_] ==

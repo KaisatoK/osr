@@ -83,8 +83,8 @@ namespace osr::cch_preprocessing {
     struct node_entry {
         static constexpr node_entry const invalid() {
             return node_entry{
-                .curr_ = ext_node::invalid(), 
                 .cost_ = kInfeasible, 
+                .curr_ = ext_node::invalid(), 
                 .pred_ = ext_edge_idx_t::invalid()
             };
         }
@@ -100,8 +100,20 @@ namespace osr::cch_preprocessing {
             }
         }
 
-        ext_node curr_;
+        friend constexpr auto operator<=>(node_entry const& a, node_entry const& b) noexcept {
+            return std::tie(a.cost_, a.curr_, a.pred_) <=> std::tie(b.cost_, b.curr_, b.pred_);
+        }
+
+        friend constexpr auto operator==(node_entry const& a, node_entry const& b) noexcept {
+            return std::tie(a.cost_, a.curr_, a.pred_) == std::tie(b.cost_, b.curr_, b.pred_);
+        }
+
+        friend constexpr auto operator!=(node_entry const& a, node_entry const& b) noexcept {
+            return std::tie(a.cost_, a.curr_, a.pred_) != std::tie(b.cost_, b.curr_, b.pred_);
+        }
+
         cost_t cost_;
+        ext_node curr_;
         ext_edge_idx_t pred_;
     };
 
