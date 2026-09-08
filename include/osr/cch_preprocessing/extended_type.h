@@ -74,7 +74,6 @@ namespace osr::cch_preprocessing {
             }
         }
 
-        ext_edge_idx_t idx_;
         ext_node from_, to_;
         cost_t cost_ = kInfeasible;
         pair<ext_edge_idx_t, ext_edge_idx_t> traceback_ = pair(ext_edge_idx_t::invalid(), ext_edge_idx_t::invalid());
@@ -83,8 +82,7 @@ namespace osr::cch_preprocessing {
     struct node_entry {
         static constexpr node_entry const invalid() {
             return node_entry{
-                .cost_ = kInfeasible, 
-                .curr_ = ext_node::invalid(), 
+                .cost_ = kInfeasible,
                 .pred_ = ext_edge_idx_t::invalid()
             };
         }
@@ -101,19 +99,18 @@ namespace osr::cch_preprocessing {
         }
 
         friend constexpr auto operator<=>(node_entry const& a, node_entry const& b) noexcept {
-            return std::tie(a.cost_, a.curr_, a.pred_) <=> std::tie(b.cost_, b.curr_, b.pred_);
+            return std::tie(a.cost_, a.pred_) <=> std::tie(b.cost_, b.pred_);
         }
 
         friend constexpr auto operator==(node_entry const& a, node_entry const& b) noexcept {
-            return std::tie(a.cost_, a.curr_, a.pred_) == std::tie(b.cost_, b.curr_, b.pred_);
+            return std::tie(a.cost_, a.pred_) == std::tie(b.cost_, b.pred_);
         }
 
         friend constexpr auto operator!=(node_entry const& a, node_entry const& b) noexcept {
-            return std::tie(a.cost_, a.curr_, a.pred_) != std::tie(b.cost_, b.curr_, b.pred_);
+            return std::tie(a.cost_, a.pred_) != std::tie(b.cost_, b.pred_);
         }
 
         cost_t cost_;
-        ext_node curr_;
         ext_edge_idx_t pred_;
     };
 

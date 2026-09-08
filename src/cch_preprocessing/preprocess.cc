@@ -5,12 +5,12 @@ namespace osr::cch_preprocessing {
     constexpr std::uint32_t const kSeed = 0xdeadbeef;
 
     template <Profile P>
-    auto build_cost_function(ways const& w, node_ordering const& ordering) {
+    auto build_cost_function(ways const& w, node_ordering const& ordering, elimination_tree const& elimination_tree) {
         auto const pp = typename P::parameters{};
         auto cost_function = customized_cost_builder<P>{};
 
         cost_function.initialize(w.n_nodes());
-        return cost_function.build(w, ordering, pp);
+        return cost_function.build(w, ordering, elimination_tree, pp);
     }
 
     void preprocess(fs::path const& in, ways const& w) {
@@ -21,7 +21,7 @@ namespace osr::cch_preprocessing {
         
         auto build = [&](search_profile const& profile) {
             with_profile(profile, [&]<Profile P>(P&&) {
-                auto cost_function = build_cost_function<P>(w, ordering);
+                auto cost_function = build_cost_function<P>(w, ordering, elimination_tree);
                 cost_function.write(in);
             });
         };
@@ -30,7 +30,7 @@ namespace osr::cch_preprocessing {
         // auto cf = build_cost_function<car>(w, std::move(ordering), std::move(elimination_tree));
         // cf.write(in);
         ordering.write(in);
-        elimination_tree.write(in);
+        // elimination_tree.write(in);
         
         fmt::println("Finished CCH preprocessing!");
     }
