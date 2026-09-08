@@ -40,16 +40,6 @@ namespace osr::cch_preprocessing {
         // TODO: make this a constexpr static member of the profile
         static constexpr auto kFilename = profile_name<P>::value;
 
-        void initialize(node_ordering const& ordering) {
-            ordering_           = ordering;
-            virtual_nodes_      = vecvec<node_idx_t, node>();
-            idx_ranges_         = vec_map<node_idx_t, std::uint32_t>();
-            extended_edges_     = vec_map<ext_edge_idx_t, ext_edge>();
-            elimination_tree_   = vec_map<node_idx_t, node_idx_t>();
-            upward_edges_       = vecvec<node_idx_t, ext_edge_idx_t>();
-            downward_edges_     = vecvec<node_idx_t, ext_edge_idx_t>();
-        }
-
         std::vector<ext_edge> trace_sg_edge(ext_edge_idx_t const& edge_idx) const {
             std::vector<ext_edge> res{0};
             std::stack<ext_edge_idx_t> st{};
@@ -62,23 +52,45 @@ namespace osr::cch_preprocessing {
                 if (edge.is_original()) {
                     res.emplace_back(edge);
                 } else { // we only care about the first pair for now
-                    utl::verify(get_edge(edge.traceback_.front().first).cost_ + get_edge(edge.traceback_.front().second).cost_ == edge.cost_,
+                    auto const& first_half = edge.traceback_.first;
+                    auto const& second_half = edge.traceback_.second;
+                    utl::verify(get_edge(first_half).cost_ + get_edge(second_half).cost_ == edge.cost_,
                                 "traceback cost mismatch, from tuple {}, {} and {}",
-                                to_string(uv), to_string(edge.traceback_.front().first), to_string(edge.traceback_.front().second));
+                                to_string(uv), to_string(first_half), to_string(second_half));
 
-                    utl::verify(edge.from_ == get_edge(edge.traceback_.front().first).from_ && edge.to_ == get_edge(edge.traceback_.front().second).to_,
+                    utl::verify(edge.from_ == get_edge(first_half).from_ && edge.to_ == get_edge(second_half).to_,
                                 "traceback from/to mismatch, from tuple {}, {} and {}",
-                                to_string(uv), to_string(edge.traceback_.front().first), to_string(edge.traceback_.front().second));
+                                to_string(uv), to_string(first_half), to_string(second_half));
 
-                    utl::verify(get_edge(edge.traceback_.front().first).to_ == get_edge(edge.traceback_.front().second).from_,
+                    utl::verify(get_edge(first_half).to_ == get_edge(second_half).from_,
                                 "traceback transit mismatch, from tuple {}, {} and {}",
-                                to_string(uv), to_string(edge.traceback_.front().first), to_string(edge.traceback_.front().second));
+                                to_string(uv), to_string(first_half), to_string(second_half));
                     
-                    st.push(edge.traceback_.front().second);
-                    st.push(edge.traceback_.front().first);
+                    st.push(second_half);
+                    st.push(first_half);
                 }
             }
             return res;
+        }
+
+        ext_node get_parent(ext_node const& idx, elimination_tree const& tree) const {
+            utl::verify(idx.first() < virtual_nodes_.size(), "node index {} out of bounds, max {}", idx.first(), virtual_nodes_.size());
+            utl::verify(idx.second() < virtual_nodes_[idx.first()].size(), "sub-node index {} out of bounds, max {}", idx.second(), virtual_nodes_[idx.first()].size());
+            if (idx.second() != virtual_nodes_[idx.first()].size() - 1U) {
+                return ext_node{
+                    .primary_idx_   = idx.first(), 
+                    .sub_idx_       = static_cast<std::uint16_t>(idx.second() + 1U)
+                };
+            }
+            if (tree.tree_.at(idx.first()) == node_idx_t::invalid()) {
+                return ext_node::invalid();
+            }
+            auto const parent = tree.tree_.at(idx.first());
+            utl::verify(parent < virtual_nodes_.size(), "parent node index {} out of bounds, max {}", parent, virtual_nodes_.size());
+            return ext_node{
+                .primary_idx_   = parent, 
+                .sub_idx_       = 0U
+            };
         }
 
         ext_edge get_edge(ext_edge_idx_t const& idx) const {
@@ -86,65 +98,50 @@ namespace osr::cch_preprocessing {
             return extended_edges_.at(idx);
         }
 
-        std::optional<ext_node_idx_t> get_virtual_node_idx(node const& n) const {
-            if (n.get_node() == node_idx_t::invalid() || n.get_node() >= static_cast<node_idx_t>(virtual_nodes_.size())) {
-                return std::nullopt;
+        ext_node get_virtual_node_idx(node const& n, node_ordering const& ordering) const {
+            if (n.get_node() == node_idx_t::invalid() || ordering.get_ordering(n.get_node()) >= static_cast<node_idx_t>(virtual_nodes_.size())) {
+                return ext_node::invalid();
             }
 
-            auto const& vnodes = virtual_nodes_[n.get_node()];
+            auto const& vnodes = virtual_nodes_[ordering.get_ordering(n.get_node())];
             auto it = std::lower_bound(vnodes.begin(), vnodes.end(), n);
 
             if (it == vnodes.end() || !(*it == n)) {
-                return std::nullopt;
+                return ext_node::invalid();
             }
 
-            return ext_node_idx_t{n.get_node(), static_cast<std::uint16_t>(std::distance(vnodes.begin(), it))};
+            return ext_node{
+                .primary_idx_   = ordering.get_ordering(n.get_node()), 
+                .sub_idx_       = static_cast<std::uint16_t>(std::distance(vnodes.begin(), it))
+            };
         }
 
-        node get_virtual_node(ext_node_idx_t const& idx) const {
-            utl::verify(idx.first < virtual_nodes_.size(), "node index {} out of bounds, max {}", idx.first, virtual_nodes_.size());
-            utl::verify(idx.second < virtual_nodes_[idx.first].size(), "sub-node index {} out of bounds, max {}", idx.second, virtual_nodes_[idx.first].size());
-            return virtual_nodes_[idx.first][idx.second];
+        node get_virtual_node(ext_node const& idx) const {
+            utl::verify(idx.first() < virtual_nodes_.size(), "node index {} out of bounds, max {}", idx.first(), virtual_nodes_.size());
+            utl::verify(idx.second() < virtual_nodes_[idx.first()].size(), "sub-node index {} out of bounds, max {}", idx.second(), virtual_nodes_[idx.first()].size());
+            return virtual_nodes_[idx.first()][idx.second()];
         }
 
-        bool ext_nodes_comp(ext_node_idx_t const& a, ext_node_idx_t const& b) const {
-            return std::tie(ordering_.get_ordering(a.first), a.second) < std::tie(ordering_.get_ordering(b.first), b.second);
+        node_idx_t get_flatten_node_idx(ext_node const idx) const {
+            return static_cast<node_idx_t>(idx_ranges_.at(idx.first()) + idx.second());
         }
 
-        std::optional<ext_node_idx_t> get_parent(ext_node_idx_t const& idx) const {
-            utl::verify(idx.first < virtual_nodes_.size(), "node index {} out of bounds, max {}", idx.first, virtual_nodes_.size());
-            utl::verify(idx.second < virtual_nodes_[idx.first].size(), "sub-node index {} out of bounds, max {}", idx.second, virtual_nodes_[idx.first].size());
-            if (idx.second != virtual_nodes_[idx.first].size() - 1U) {
-                return ext_node_idx_t{idx.first, static_cast<std::uint16_t>(idx.second + 1U)};
-            }
-            if (elimination_tree_.at(idx.first) == node_idx_t::invalid()) {
-                return std::nullopt;
-            }
-            auto const parent = elimination_tree_.at(idx.first);
-            utl::verify(parent < virtual_nodes_.size(), "parent node index {} out of bounds, max {}", parent, virtual_nodes_.size());
-            return ext_node_idx_t{parent, 0U};
-        }
-
-        std::optional<ext_node_idx_t> get_parent(node const& n) const {
-            return get_parent(get_virtual_node_idx(n));
-        }
-
-        vecvec<node_idx_t, ext_edge_idx_t>::const_bucket get_upward_edges(ext_node_idx_t const& idx) const {
-            utl::verify(idx.first < virtual_nodes_.size(), "node index {} out of bounds, max {}", idx.first, virtual_nodes_.size());
-            utl::verify(idx.second < virtual_nodes_[idx.first].size(), "sub-node index {} out of bounds, max {}", idx.second, virtual_nodes_[idx.first].size());
-            auto const imm_idx = static_cast<node_idx_t>(idx_ranges_.at(idx.first) + idx.second);
+        vecvec<node_idx_t, ext_edge_idx_t>::const_bucket get_upward_edges(ext_node const& idx) const {
+            utl::verify(idx.first() < virtual_nodes_.size(), "node index {} out of bounds, max {}", idx.first(), virtual_nodes_.size());
+            utl::verify(idx.second() < virtual_nodes_[idx.first()].size(), "sub-node index {} out of bounds, max {}", idx.second(), virtual_nodes_[idx.first()].size());
+            auto const imm_idx = get_flatten_node_idx(idx);
             utl::verify(imm_idx < upward_edges_.size(), "upward edges index {} out of bounds, max {}", imm_idx, upward_edges_.size());
             return upward_edges_[imm_idx];
         }
 
-        vecvec<node_idx_t, ext_edge_idx_t>::const_bucket get_downward_edges(ext_node_idx_t const& idx) const {
-            utl::verify(idx.first < virtual_nodes_.size(), "node index {} out of bounds, max {}", idx.first, virtual_nodes_.size());
-            utl::verify(idx.second < virtual_nodes_[idx.first].size(), "sub-node index {} out of bounds, max {}", idx.second, virtual_nodes_[idx.first].size());
-            auto const imm_idx = static_cast<node_idx_t>(idx_ranges_.at(idx.first) + idx.second);
+        vecvec<node_idx_t, ext_edge_idx_t>::const_bucket get_downward_edges(ext_node const& idx) const {
+            utl::verify(idx.first() < virtual_nodes_.size(), "node index {} out of bounds, max {}", idx.first(), virtual_nodes_.size());
+            utl::verify(idx.second() < virtual_nodes_[idx.first()].size(), "sub-node index {} out of bounds, max {}", idx.second(), virtual_nodes_[idx.first()].size());
+            auto const imm_idx = get_flatten_node_idx(idx);
             utl::verify(imm_idx < downward_edges_.size(), "downward edges index {} out of bounds, max {}", imm_idx, downward_edges_.size());
             return downward_edges_[imm_idx];
         }
-        
+
         template <std::size_t NMaxTypes>
         friend constexpr auto static_type_hash(
             customized_cost_stored<P> const*, cista::hash_data<NMaxTypes> h) noexcept {
@@ -162,16 +159,14 @@ namespace osr::cch_preprocessing {
             return cista::write(path / std::filesystem::path{kFilename}, *this);
         }
 
-        node_ordering ordering_;
-        vecvec<node_idx_t, ext_edge_idx_t> upward_edges_, downward_edges_;
         vecvec<node_idx_t, node> virtual_nodes_;
-        vec_map<node_idx_t, node_idx_t> elimination_tree_;
         vec_map<node_idx_t, std::uint32_t> idx_ranges_;
         vec_map<ext_edge_idx_t, ext_edge> extended_edges_;
+        vecvec<node_idx_t, ext_edge_idx_t> upward_edges_, downward_edges_;
     };
 
     template <Profile P>
-    struct customized_cost {
+    struct customized_cost_builder {
         using profile_t = P;
         using key = typename P::key;
         using label = typename P::label;
@@ -181,141 +176,92 @@ namespace osr::cch_preprocessing {
 
         using list_it = std::list<ext_edge_idx_t>::iterator;
 
-        customized_cost(node_ordering const& ordering) : ordering_{ordering} {
-            virtual_nodes_  = std::vector<std::vector<node>>(ordering.size());
-            extended_edges_ = std::vector<std::pair<list_it, ext_edge>>();
-            upward_edges_   = std::vector<std::vector<std::list<ext_edge_idx_t>>>(ordering.size());
-            downward_edges_ = std::vector<std::vector<std::list<ext_edge_idx_t>>>(ordering.size());
-        };
-
-        std::list<ext_edge_idx_t> const& get_upward_edges(ext_node_idx_t const& idx) const {
-            utl::verify(idx.first.v_ < upward_edges_.size(), "node index {} out of bounds, max {}", idx.first, upward_edges_.size());
-            utl::verify(idx.second < upward_edges_[idx.first.v_].size(), "sub-node index {} out of bounds, max {}", idx.second, upward_edges_[idx.first.v_].size());
-            return upward_edges_[idx.first.v_][idx.second];
+        static void initialize(std::size_t const num_nodes) {
+            extended_edges_.clear();
+            upward_edges_.resize(num_nodes);
+            downward_edges_.resize(num_nodes);
         }
 
-        std::list<ext_edge_idx_t>& get_upward_edges(ext_node_idx_t const& idx) {
-            utl::verify(idx.first.v_ < upward_edges_.size(), "node index {} out of bounds, max {}", idx.first, upward_edges_.size());
-            utl::verify(idx.second < upward_edges_[idx.first.v_].size(), "sub-node index {} out of bounds, max {}", idx.second, upward_edges_[idx.first.v_].size());
-            return upward_edges_[idx.first.v_][idx.second];
+        static std::list<ext_edge_idx_t>& get_upward_edges(ext_node const& idx) {
+            utl::verify(idx.first().v_ < upward_edges_.size(), "node index {} out of bounds, max {}", idx.first().v_, upward_edges_.size());
+            utl::verify(idx.second() < upward_edges_[idx.first().v_].size(), "sub-node index {} out of bounds, max {}", idx.second(), upward_edges_[idx.first().v_].size());
+            return upward_edges_[idx.first().v_][idx.second()];
         }
 
-        std::list<ext_edge_idx_t> const& get_downward_edges(ext_node_idx_t const& idx) const {
-            utl::verify(idx.first.v_ < downward_edges_.size(), "node index {} out of bounds, max {}", idx.first, downward_edges_.size());
-            utl::verify(idx.second < downward_edges_[idx.first.v_].size(), "sub-node index {} out of bounds, max {}", idx.second, downward_edges_[idx.first.v_].size());
-            return downward_edges_[idx.first.v_][idx.second];
+        static std::list<ext_edge_idx_t>& get_downward_edges(ext_node const& idx) {
+            utl::verify(idx.first().v_ < downward_edges_.size(), "node index {} out of bounds, max {}", idx.first().v_, downward_edges_.size());
+            utl::verify(idx.second() < downward_edges_[idx.first().v_].size(), "sub-node index {} out of bounds, max {}", idx.second(), downward_edges_[idx.first().v_].size());
+            return downward_edges_[idx.first().v_][idx.second()];
         }
 
-        std::list<ext_edge_idx_t>& get_downward_edges(ext_node_idx_t const& idx) {
-            utl::verify(idx.first.v_ < downward_edges_.size(), "node index {} out of bounds, max {}", idx.first, downward_edges_.size());
-            utl::verify(idx.second < downward_edges_[idx.first.v_].size(), "sub-node index {} out of bounds, max {}", idx.second, downward_edges_[idx.first.v_].size());
-            return downward_edges_[idx.first.v_][idx.second];
+        static ext_edge& get_edge(ext_edge_idx_t const idx) {
+            utl::verify(idx.v_ < extended_edges_.size(), "edge index {} out of bounds, max {}", idx.v_, extended_edges_.size());
+            return extended_edges_[idx.v_];
         }
 
-        ext_edge const& get_edge(ext_edge_idx_t const& idx) const {
-            utl::verify(idx.v_ < extended_edges_.size(), "edge index {} out of bounds, max {}", idx, extended_edges_.size());
-            return extended_edges_[idx.v_].second;
-        }
-
-        ext_edge& get_edge(ext_edge_idx_t const& idx) {
-            utl::verify(idx.v_ < extended_edges_.size(), "edge index {} out of bounds, max {}", idx, extended_edges_.size());
-            return extended_edges_[idx.v_].second;
-        }
-
-        ext_edge_idx_t get_rev_edge(ext_edge_idx_t const& uv) const {
+        static ext_edge_idx_t const get_rev_edge(ext_edge_idx_t const& uv) {
             return static_cast<ext_edge_idx_t>(uv.v_ ^ 1);
         }
 
-        bool ext_nodes_comp(ext_node_idx_t const& a, ext_node_idx_t const& b) const {
-            return std::tie(ordering_.get_ordering(a.first), a.second) < std::tie(ordering_.get_ordering(b.first), b.second);
-        }
-
-        template <bool IsReversed, typename Fn>
-        void for_each_vir_node(Fn&& fn) {
-            if constexpr (IsReversed) {
-                for (auto it = ordering_.new_to_old_.rbegin(); it != ordering_.new_to_old_.rend(); ++it) {
-                    auto const& nodes = virtual_nodes_[it->v_];
-                    for (std::size_t sub_idx = nodes.size(); sub_idx > 0; --sub_idx) {
-                        fn(nodes[sub_idx - 1], ext_node_idx_t{*it, static_cast<std::uint16_t>(sub_idx - 1)});
-                    }
-                }
-            } else {
-                for (auto const& idx : ordering_.new_to_old_) {
-                    utl::verify(idx.v_ < virtual_nodes_.size(), "Invalid node index {} for virtual nodes of size {}", idx, virtual_nodes_.size());
-                    auto const& nodes = virtual_nodes_[idx.v_];
-                    for (auto const& [sub_idx, node] : utl::enumerate(nodes)) {
-                        fn(node, ext_node_idx_t{idx, static_cast<std::uint16_t>(sub_idx)});
-                    }
-                }
-            }
-        }
-
-        std::optional<ext_node_idx_t> get_virtual_node_idx(node const& n) const {
-            if (n.get_node() == node_idx_t::invalid() || n.get_node() >= static_cast<node_idx_t>(virtual_nodes_.size())) {
-                return std::nullopt;
-            }
-
-            auto const& vnodes = virtual_nodes_[n.get_node().v_];
-            auto it = std::lower_bound(vnodes.begin(), vnodes.end(), n);
-
-            if (it == vnodes.end() || !(*it == n)) {
-                return std::nullopt;
-            }
-
-            return ext_node_idx_t{n.get_node(), static_cast<std::uint16_t>(std::distance(vnodes.begin(), it))};
-        }
-
-        void add_edge(ext_node_idx_t const& from_idx, ext_node_idx_t const& to_idx, std::optional<list_it> from_ins_pos = std::nullopt) {
-            utl::verify(ext_nodes_comp(from_idx, to_idx), "Expected upward edge from {} to {}, but ordering is not correct, odering {}, {}", to_string(from_idx), to_string(to_idx), ordering_.get_ordering(from_idx.first), ordering_.get_ordering(to_idx.first));
+        static void add_edge(ext_node const& from_idx, ext_node const& to_idx, std::optional<list_it> from_ins_pos = std::nullopt) {
+            // utl::verify(ext_nodes_comp(from_idx, to_idx), "Expected upward edge from {} to {}, but ordering is not correct, odering {}, {}", to_string(from_idx), to_string(to_idx), ordering_.get_ordering(from_idx.first), ordering_.get_ordering(to_idx.first));
 
             if (!from_ins_pos) from_ins_pos = std::make_optional(get_upward_edges(from_idx).end());
-
-            get_upward_edges(from_idx).emplace(*from_ins_pos, extended_edges_.size());
-            extended_edges_.emplace_back(std::make_pair(std::prev(*from_ins_pos), ext_edge{from_idx, to_idx}));
-            get_downward_edges(to_idx).emplace_back(extended_edges_.size());
-            extended_edges_.emplace_back(std::make_pair(std::prev(get_downward_edges(to_idx).end()), ext_edge{to_idx, from_idx}));
+            
+            auto curr_size = static_cast<ext_edge_idx_t>(extended_edges_.size());
+            get_upward_edges(from_idx).emplace(*from_ins_pos, curr_size);
+            extended_edges_.emplace_back(ext_edge{.idx_ = curr_size, .from_ = from_idx, .to_ = to_idx});
+            curr_size++;
+            get_downward_edges(to_idx).emplace_back(curr_size);
+            extended_edges_.emplace_back(ext_edge{.idx_ = curr_size, .from_ = to_idx, .to_ = from_idx});
         }
 
-        void build_node_mapping(ways::routing const& r) {
-            auto pt = utl::get_active_progress_tracker_or_activate("osr-cch-preprocess");
+        static void build_node_mapping(ways::routing const& r, node_ordering const& ordering, customized_cost_stored<P>& ccs) {
+            ccs.virtual_nodes_.resize(ordering.size());
+            ccs.idx_ranges_.resize(ordering.size());
 
-            pt->status("Build virtual node mapping").in_high(ordering_.size()).out_bounds(0, 10);
-
-            for (auto const& cur_node : ordering_.new_to_old_) {
-                P::resolve_all(r, cur_node, kNoLevel, [&](node const n) {
-                    virtual_nodes_[cur_node.v_].emplace_back(n);
+            // map old ordering to new ordering
+            ordering.for_each_node<true>([&](node_idx_t const& from_ord, node_idx_t const& from) {
+                P::resolve_all(r, from, kNoLevel, [&](node const n) {
+                    ccs.virtual_nodes_[from_ord].push_back(n);
                 });
-                utl::sort(virtual_nodes_[cur_node.v_]);
-            }
-            for (auto const& cur_node : ordering_.new_to_old_) {
-                upward_edges_[cur_node.v_].resize(virtual_nodes_[cur_node.v_].size());
-                downward_edges_[cur_node.v_].resize(virtual_nodes_[cur_node.v_].size());
-            }
+                utl::sort(ccs.virtual_nodes_[from_ord]);
+            });
 
-            pt->update(ordering_.size());
+            std::uint32_t range_start = 0;
+            ordering.for_each_node<true>([&](node_idx_t const& from_ord, node_idx_t const&) {
+                upward_edges_[from_ord.v_].resize(ccs.virtual_nodes_[from_ord].size());
+                downward_edges_[from_ord.v_].resize(ccs.virtual_nodes_[from_ord].size());
+
+                std::fill(upward_edges_[from_ord.v_].begin(), upward_edges_[from_ord.v_].end(), std::list<ext_edge_idx_t>{});
+                std::fill(downward_edges_[from_ord.v_].begin(), downward_edges_[from_ord.v_].end(), std::list<ext_edge_idx_t>{});
+
+                ccs.idx_ranges_[from_ord] = range_start;
+                range_start += static_cast<std::uint32_t>(ccs.virtual_nodes_[from_ord].size());
+            });
         }
 
-        void transfer_edges_cost(typename P::parameters const& params,
-                                ways const& w, 
-                                bitvec<node_idx_t> const* blocked,
-                                sharing_data const* additional,
-                                elevation_storage const* elevation) {
+        static void transfer_edges_cost(ways const& w, 
+                                        node_ordering const& ordering, 
+                                        customized_cost_stored<P>& ccs, 
+                                        typename P::parameters const& params) {
 
-            auto pt = utl::get_active_progress_tracker_or_activate("osr-cch-preprocess");
-            pt->status("Transfer edges cost").in_high(ordering_.size()).out_bounds(10, 30);
-            for_each_vir_node<false>(
-                [&](node const& from, ext_node_idx_t const& from_idx) {
-                    P::template adjacent<direction::kForward, false>(params, *w.r_, from, blocked, additional, elevation, 
+            for (node_idx_t i = static_cast<node_idx_t>(0U); i < ccs.virtual_nodes_.size(); i++) {
+                for (std::uint16_t j = 0; j < ccs.virtual_nodes_[i].size(); ++j) {
+                    auto const from_idx = ext_node{i, j};
+                    auto const from = ccs.virtual_nodes_[i][j];
+
+                    P::template adjacent<direction::kForward, false>(params, *w.r_, from, nullptr, nullptr, nullptr, 
                         [&](node const to, std::uint32_t const cost,
                             distance_t, way_idx_t const, std::uint16_t, std::uint16_t, 
                             elevation_storage::elevation, bool const) {
                                 
-                            utl::verify(get_virtual_node_idx(to).has_value(), "Virtual node index for node {} not found", to.get_node());
-                            auto const to_idx = *get_virtual_node_idx(to);
-                            if (ext_nodes_comp(from_idx, to_idx)) {
+                            utl::verify(ccs.get_virtual_node_idx(to, ordering) != ext_node::invalid(), "Virtual node index for node {} not found", to.get_node());
+                            auto const to_idx = ccs.get_virtual_node_idx(to, ordering);
+                            if (from_idx < to_idx) {
                                 add_edge(from_idx, to_idx);
                                 get_edge(get_upward_edges(from_idx).back()).update(cost);
-                            } else if (ext_nodes_comp(to_idx, from_idx)) {
+                            } else if (to_idx < from_idx) {
                                 bool found = false;
                                 for (auto const& adj_edge : get_downward_edges(from_idx)) {
                                     if (get_edge(adj_edge).to_ == to_idx) {
@@ -332,25 +278,14 @@ namespace osr::cch_preprocessing {
                         }
                     );
                 }
-            );
-
-            pt->update(ordering_.size());
+            }
         }
 
-        void customize(typename P::parameters const& params,
-                        ways const& w,
-                        bitvec<node_idx_t> const* blocked = nullptr,
-                        sharing_data const* additional = nullptr,
-                        elevation_storage const* elevation = nullptr) {
-            build_node_mapping(*w.r_);
-            transfer_edges_cost(params, w, blocked, additional, elevation);
-
-            auto pt = utl::get_active_progress_tracker_or_activate("osr-cch-preprocess");
-
+        static void customize(customized_cost_stored<P>& ccs) {
             auto const feasible_check = [&](ext_edge_idx_t const& uv, ext_edge_idx_t const& vw) -> bool {
                 return get_edge(uv).cost_ != kInfeasible && get_edge(vw).cost_ != kInfeasible;
             };
-
+            
             auto const add_cost = [&](ext_edge_idx_t const& uv, ext_edge_idx_t const& vw, ext_edge_idx_t const& uw) {
                 if (!feasible_check(uv, vw) || kInfeasible - get_edge(uv).cost_ <= get_edge(vw).cost_) {
                     return;
@@ -359,14 +294,15 @@ namespace osr::cch_preprocessing {
                 get_edge(uw).update(new_cost, uv, vw);
             };
 
-            pt->status("Customizing cost").in_high(ordering_.size()).out_bounds(30, 80);
-
-            for_each_vir_node<false>(
-                [&](node const&, ext_node_idx_t const& u_idx) {
+            for (node_idx_t i = static_cast<node_idx_t>(0U); i < ccs.virtual_nodes_.size(); i++) {
+                for (std::uint16_t j = 0; j < ccs.virtual_nodes_[i].size(); ++j) {
+                    auto const u_idx = ext_node{i, j};
+                    // auto const u = ccs.virtual_nodes_[i][j];
+                
                     get_upward_edges(u_idx).sort([&](ext_edge_idx_t const& a, ext_edge_idx_t const& b) {
                         auto const& ato = get_edge(a).to_;
                         auto const& bto = get_edge(b).to_;
-                        return ext_nodes_comp(ato, bto);
+                        return ato < bto;
                     });
 
                     for (auto const& uv : get_downward_edges(u_idx)) {
@@ -382,10 +318,10 @@ namespace osr::cch_preprocessing {
                             continue;
                         }
                         for (auto v_edge_it = v_edges.end(); v_edge_it != v_edges.begin(); v_edge_it = std::prev(v_edge_it)) {
-                            auto const& vw = *std::prev(v_edge_it);
+                            auto const vw = *std::prev(v_edge_it);
                             auto const w_idx = get_edge(vw).to_;
 
-                            if (!ext_nodes_comp(u_idx, w_idx)) {
+                            if (u_idx >= w_idx) {
                                 break;
                             }
 
@@ -393,69 +329,59 @@ namespace osr::cch_preprocessing {
                                 continue;
                             }
 
-                            while (!get_upward_edges(u_idx).empty() && u_edge_it != get_upward_edges(u_idx).begin() && ext_nodes_comp(w_idx, get_edge(*std::prev(u_edge_it)).to_)) {
+                            while (!get_upward_edges(u_idx).empty() && u_edge_it != get_upward_edges(u_idx).begin() && w_idx < get_edge(*std::prev(u_edge_it)).to_) {
                                 u_edge_it = std::prev(u_edge_it);
                             }
-                            if (get_upward_edges(u_idx).empty() || u_edge_it == get_upward_edges(u_idx).begin() || ext_nodes_comp(get_edge(*std::prev(u_edge_it)).to_, w_idx)) {
+                            if (get_upward_edges(u_idx).empty() || u_edge_it == get_upward_edges(u_idx).begin() || get_edge(*std::prev(u_edge_it)).to_ < w_idx) {
                                 add_edge(u_idx, w_idx, u_edge_it);
                             }
 
-                            auto const& uw = *std::prev(u_edge_it);
+                            auto const uw = *std::prev(u_edge_it);
 
                             add_cost(uv, vw, uw);
                             add_cost(get_rev_edge(vw), get_rev_edge(uv), get_rev_edge(uw));
                         }
                     }
-                }
-            );
-
-            pt->update(ordering_.size());
+                }    
+            }
         }
 
-        customized_cost_stored<P> store(vec_map<node_idx_t, node_idx_t>&& elimination_tree) {
+        static customized_cost_stored<P> build(ways const& w, node_ordering const& ordering, typename P::parameters const& params) {
             auto pt = utl::get_active_progress_tracker_or_activate("osr-cch-preprocess");
-
-            pt->status("Store customized cost").in_high(ordering_.size()).out_bounds(80, 100);
-
-            customized_cost_stored<P> stored;
-            stored.initialize(ordering_);
-
-            stored.elimination_tree_ = std::move(elimination_tree);
+            customized_cost_stored<P> ccs;
+            initialize(ordering.size());
             
-            std::uint32_t total_idxes = 0;
-            for (auto const& nodes : virtual_nodes_) {
-                stored.virtual_nodes_.emplace_back(nodes);
-                stored.idx_ranges_.emplace_back(total_idxes);
-                total_idxes += nodes.size();
+            pt->status("Build virtual node mapping").in_high(1).out_bounds(0, 10);
+            build_node_mapping(*w.r_, ordering, ccs);
+            pt->update(1);
+
+            pt->status("Transfer edges cost").in_high(1).out_bounds(10, 30);
+            transfer_edges_cost(w, ordering, ccs, params);
+            pt->update(1);
+
+            pt->status("Customizing cost").in_high(1).out_bounds(30, 70);
+            customize(ccs);
+            pt->update(1);
+
+            pt->status("Store customized cost").in_high(1).out_bounds(70, 80);
+            for (auto const& edge : extended_edges_) {
+                ccs.extended_edges_.emplace_back(edge);
             }
 
-            for (auto const& [it, edge] : extended_edges_) {
-                stored.extended_edges_.emplace_back(edge);
-            }
-
-            // for_each_vir_node<false>(
-            //     [&](node const&, ext_node_idx_t const& idx) {
-            //         stored.upward_edges_.emplace_back(get_upward_edges(idx));
-            //         stored.downward_edges_.emplace_back(get_downward_edges(idx));
-            //     }
-            // );
-
-            for (auto const& [idx, vir_nodes] : utl::enumerate(stored.virtual_nodes_)) {
-                for (std::size_t sub_idx = 0; sub_idx < vir_nodes.size(); ++sub_idx) {
-                    auto const pidx = ext_node_idx_t{static_cast<node_idx_t>(idx), static_cast<std::uint16_t>(sub_idx)};
-                    stored.upward_edges_.emplace_back(get_upward_edges(pidx));
-                    stored.downward_edges_.emplace_back(get_downward_edges(pidx));
+            for (node_idx_t i = static_cast<node_idx_t>(0U); i < ccs.virtual_nodes_.size(); i++) {
+                for (std::uint16_t j = 0; j < ccs.virtual_nodes_[i].size(); ++j) {
+                    auto const idx = ext_node{i, j};
+                    ccs.upward_edges_.emplace_back(get_upward_edges(idx));
+                    ccs.downward_edges_.emplace_back(get_downward_edges(idx));
                 }
             }
+            pt->update(1);
 
-            pt->update(ordering_.size());
-
-            return stored;
+            return ccs;
         }
 
-        node_ordering ordering_;
-        std::vector<std::vector<node>> virtual_nodes_;
-        std::vector<std::pair<list_it, ext_edge>> extended_edges_;
-        std::vector<std::vector<std::list<ext_edge_idx_t>>> upward_edges_, downward_edges_;
+        inline static std::vector<ext_edge> extended_edges_ = {};
+        inline static std::vector<std::vector<std::list<ext_edge_idx_t>>> upward_edges_ = {}, downward_edges_ = {};
     };
-} // namespace osr::cch_preprocessing
+
+}   // namespace osr::cch_preprocessing

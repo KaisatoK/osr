@@ -17,9 +17,8 @@
 
 #include "osr/routing/profiles/car.h"
 
-#include "osr/cch_preprocessing/customized_cost.h"
 #include "osr/cch_preprocessing/preprocess.h"
-#include "osr/cch_preprocessing/extended_type.h"
+#include "osr/cch_preprocessing/preprocessed_data.h"
 
 namespace fs = std::filesystem;
 using namespace osr;
@@ -40,27 +39,30 @@ void load_customized_cost(std::string_view raw_data, std::string_view data_dir, 
   if (fs::exists(raw_data)) {
     fmt::print("Preprocessing CCH for {}...\n", data_dir);
     osr::cch_preprocessing::preprocess(fs::path{data_dir}, w);
-    fmt::print("Done extracting and preprocessing {} to {}.\n", raw_data,
-                data_dir);
+    fmt::print("Done extracting and preprocessing {} to {}.\n", raw_data, data_dir);
+    osr::cch_preprocessing::preprocessed_data::load_metric_independent(fs::path{data_dir});
+    osr::cch_preprocessing::preprocessed_data::load_customized_cost<car>(fs::path{data_dir});
   }
 }
 
 void valid_test(std::string_view data_dir, ways const& w) {
-    auto const cc = osr::cch_preprocessing::customized_cost_stored<car>::read(data_dir);
+    auto const& cc               = osr::cch_preprocessing::preprocessed_data::get_customized_cost<car>();
+    auto const& ordering         = osr::cch_preprocessing::preprocessed_data::get_ordering();
+    auto const& elimination_tree = osr::cch_preprocessing::preprocessed_data::get_elimination_tree();
 
     auto const checkExists = [&](auto const from, auto const to, auto const cost) -> bool {
-        if (cc->ext_nodes_comp(from, to)) {
-            auto const edges = cc->get_upward_edges(from);
+        if (from < to) {
+            auto const edges = cc.get_upward_edges(from);
             for (auto const& edge : edges) {
-                auto const e = cc->get_edge(edge);
+                auto const e = cc.get_edge(edge);
                 if (e.from_ == from && e.to_ == to && e.cost_ == cost) {
                     return true;
                 }
             }
         } else {
-            auto const edges = cc->get_downward_edges(from);
+            auto const edges = cc.get_downward_edges(from);
             for (auto const& edge : edges) {
-                auto const e = cc->get_edge(edge);
+                auto const e = cc.get_edge(edge);
                 if (e.from_ == from && e.to_ == to && e.cost_ == cost) {
                     return true;
                 }
@@ -71,18 +73,18 @@ void valid_test(std::string_view data_dir, ways const& w) {
 
     fmt::print("Validating CCH for {}...\n", data_dir);
 
-    ASSERT_TRUE(cc);
-    ASSERT_EQ(cc->ordering_.size(), w.n_nodes());
-    ASSERT_EQ(cc->virtual_nodes_.size(), w.n_nodes());
-    ASSERT_EQ(cc->idx_ranges_.size(), w.n_nodes());
+    // ASSERT_TRUE(cc);
+    ASSERT_EQ(ordering.size(), w.n_nodes());
+    ASSERT_EQ(cc.virtual_nodes_.size(), w.n_nodes());
+    ASSERT_EQ(cc.idx_ranges_.size(), w.n_nodes());
 
-    fmt::print("Found {} virtual nodes and {} extended edges.\n", cc->virtual_nodes_.size(), cc->extended_edges_.size());
+    fmt::print("Found {} virtual nodes and {} extended edges.\n", cc.virtual_nodes_.size(), cc.extended_edges_.size());
 
     for (auto const& way : w.r_->way_nodes_) {
         for (auto const& node : way) {
             car::resolve_all(*w.r_, node, kNoLevel, [&](auto const& n) {
-                auto const idx = cc->get_virtual_node_idx(n);
-                ASSERT_TRUE(idx.has_value());
+                auto const idx = cc.get_virtual_node_idx(n, ordering);
+                ASSERT_TRUE(idx != osr::cch_preprocessing::ext_node::invalid());
             });
         }
     }
@@ -91,38 +93,36 @@ void valid_test(std::string_view data_dir, ways const& w) {
 
     std::uint32_t total_idxes = 0;
     node_idx_t curr_idx = static_cast<node_idx_t>(0);
-    for (auto const& idx_pointer : cc->idx_ranges_) {
+    for (auto const& idx_pointer : cc.idx_ranges_) {
         ASSERT_TRUE(idx_pointer >= total_idxes);
         ASSERT_EQ(total_idxes, idx_pointer);
-        total_idxes += cc->virtual_nodes_[curr_idx].size();
+        total_idxes += cc.virtual_nodes_[curr_idx].size();
         ++curr_idx;
     }
 
-    auto const max_idx = static_cast<node_idx_t>(cc->idx_ranges_.back() + cc->virtual_nodes_.back().size());
+    auto const max_idx = static_cast<node_idx_t>(cc.idx_ranges_.back() + cc.virtual_nodes_.back().size());
     fmt::print("Found maximal flattened idx {}.\n", max_idx);
-    ASSERT_EQ(max_idx, cc->upward_edges_.size());
-    ASSERT_EQ(max_idx, cc->downward_edges_.size());
+    ASSERT_EQ(max_idx, cc.upward_edges_.size());
+    ASSERT_EQ(max_idx, cc.downward_edges_.size());
 
     std::uint32_t total_upward_edges = 0;
     std::uint32_t total_downward_edges = 0;
-    for (auto const& edges : cc->upward_edges_) {
+    for (auto const& edges : cc.upward_edges_) {
         total_upward_edges += edges.size();
     }
-    for (auto const& edges : cc->downward_edges_) {
+    for (auto const& edges : cc.downward_edges_) {
         total_downward_edges += edges.size();
     }
     fmt::print("Found total {} upward edges and {} downward edges.\n", total_upward_edges, total_downward_edges);
-    ASSERT_EQ(total_upward_edges + total_downward_edges, cc->extended_edges_.size());
+    ASSERT_EQ(total_upward_edges + total_downward_edges, cc.extended_edges_.size());
 
     std::uint32_t total_passed = 0;
-    for (auto const& edge : cc->extended_edges_) {
+    for (auto const& edge : cc.extended_edges_) {
         // fmt::print("Checking extended edge from {} to {} with cost {}...\n", osr::cch_preprocessing::to_string(edge.from_), osr::cch_preprocessing::to_string(edge.to_), edge.cost_);
         // ASSERT_TRUE(checkExists(edge.from_, edge.to_, edge.cost_));
         total_passed += checkExists(edge.from_, edge.to_, edge.cost_) ? 1 : 0;
     }
-    ASSERT_EQ(total_passed, cc->extended_edges_.size());
-
-    fmt::print("All extended edges are valid.\n");
+    ASSERT_EQ(total_passed, cc.extended_edges_.size());
 
     // for (auto const& way : w.r_->way_nodes_) {
     //     for (auto const& node : way) {
@@ -142,12 +142,12 @@ void valid_test(std::string_view data_dir, ways const& w) {
     //     }
     // }
 
-    for (auto const& edge : cc->extended_edges_) {
+    for (auto const& edge : cc.extended_edges_) {
         if (!edge.is_original() || edge.cost_ == kInfeasible) {
             continue;
         }
-        auto const from = cc->get_virtual_node(edge.from_);
-        auto const to = cc->get_virtual_node(edge.to_);
+        auto const from = cc.get_virtual_node(edge.from_);
+        auto const to = cc.get_virtual_node(edge.to_);
         
         bool found = false;
         car::template adjacent<direction::kForward, false>(car::parameters{}, *w.r_, from, nullptr, nullptr, nullptr, 
@@ -161,49 +161,51 @@ void valid_test(std::string_view data_dir, ways const& w) {
         ASSERT_TRUE(found);
     }
 
-    for (auto const& edge : cc->extended_edges_) {
+    for (auto const& edge : cc.extended_edges_) {
         if (edge.is_original()) {
             continue;
         }
         
         ASSERT_TRUE(0 <= edge.cost_ && edge.cost_ < kInfeasible);
-        auto const& trace = edge.traceback_;
-        ASSERT_FALSE(trace.empty());
-        for (auto const& t : trace) {
-            auto const from = cc->get_edge(t.first);
-            auto const to = cc->get_edge(t.second);
-            auto const total_cost = from.cost_ + to.cost_;
+        auto const trace = edge.traceback_;
+        ASSERT_FALSE(edge.is_original());
+        auto const from = cc.get_edge(trace.first);
+        auto const to = cc.get_edge(trace.second);
+        auto const total_cost = from.cost_ + to.cost_;
 
-            ASSERT_EQ(edge.from_, from.from_);
-            ASSERT_EQ(edge.to_, to.to_);
-            ASSERT_EQ(from.to_, to.from_);
-            ASSERT_EQ(edge.cost_, total_cost);
-        }
+        ASSERT_EQ(edge.from_, from.from_);
+        ASSERT_EQ(edge.to_, to.to_);
+        ASSERT_EQ(from.to_, to.from_);
+        ASSERT_EQ(edge.cost_, total_cost);
     }
 
-    for (node_idx_t i = node_idx_t{0}; i < std::min(cc->ordering_.size(), size_t(20)); ++i) {
-        fmt::print("{}'s parent is {}.\n", i, cc->elimination_tree_.at(i));
+    fmt::print("All extended edges are valid and have correct costs.\n");
+
+    fmt::print("tree size: {}\n", elimination_tree.tree_.size());
+
+    for (node_idx_t i = node_idx_t{0}; i < std::min(ordering.size(), size_t(20)); ++i) {
+        fmt::print("{}'s parent is {}.\n", i, elimination_tree.tree_.at(i));
     }
 
-    for (auto const& [idx, sub_idxes] : utl::enumerate(cc->virtual_nodes_)) {
+    for (auto const& [idx, sub_idxes] : utl::enumerate(cc.virtual_nodes_)) {
         for (auto const& [sub_idx, node] : utl::enumerate(sub_idxes)) {
-            auto const ext_node = osr::cch_preprocessing::ext_node_idx_t{static_cast<node_idx_t>(idx), static_cast<std::uint16_t>(sub_idx)};
-            auto const par = cc->get_parent(ext_node);
+            auto const ext_node = osr::cch_preprocessing::ext_node::to_ext_node(idx, sub_idx);
+            auto const par = cc.get_parent(ext_node, elimination_tree);
 
             if (sub_idx < sub_idxes.size() - 1U) {
-                auto const nxt = osr::cch_preprocessing::ext_node_idx_t{static_cast<node_idx_t>(idx), static_cast<std::uint16_t>(sub_idx + 1U)};
-                ASSERT_EQ(par.value(), nxt);
-            } else if (!cc->get_upward_edges(ext_node).empty()) {
-                auto min_node = osr::cch_preprocessing::ext_node_idx_t{static_cast<node_idx_t>(cc->ordering_.size()), 0U};
-                for (auto const& edge_idx : cc->get_upward_edges(ext_node)) {
-                    auto const& to = cc->get_edge(edge_idx).to_;
-                    if (min_node.first.v_ == cc->ordering_.size() || cc->ext_nodes_comp(to, min_node)) {
+                auto const nxt = osr::cch_preprocessing::ext_node::to_ext_node(idx, sub_idx + 1U);
+                ASSERT_EQ(par, nxt);
+            } else if (!cc.get_upward_edges(ext_node).empty()) {
+                auto min_node = osr::cch_preprocessing::ext_node::to_ext_node(ordering.size(), 0U);
+                for (auto const& edge_idx : cc.get_upward_edges(ext_node)) {
+                    auto const& to = cc.get_edge(edge_idx).to_;
+                    if (min_node.primary_idx_.v_ == ordering.size() || to < min_node) {
                         min_node = to;
                     }
                 }
-                utl::verify(par.has_value(), "Parent node for extended node {} is missing", osr::cch_preprocessing::to_string(ext_node));
-                utl::verify(!cc->ext_nodes_comp(min_node, *par), "Parent node {} is less than minimal child node {} for extended node {}",
-                            osr::cch_preprocessing::to_string(*par), osr::cch_preprocessing::to_string(min_node), osr::cch_preprocessing::to_string(ext_node));
+                utl::verify(par != osr::cch_preprocessing::ext_node::invalid(), "Parent node for extended node {} is missing", osr::cch_preprocessing::to_string(ext_node));
+                utl::verify(min_node >= par, "Parent node {} is less than minimal child node {} for extended node {}",
+                            osr::cch_preprocessing::to_string(par), osr::cch_preprocessing::to_string(min_node), osr::cch_preprocessing::to_string(ext_node));
             }
         }
     }

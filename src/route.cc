@@ -53,10 +53,10 @@ dijkstra<P>& get_dijkstra() {
 }
 
 template <Profile P>
-cch_query<P>& get_cch_query(std::filesystem::path const& cch_path) {
+cch_query<P>& get_cch_query() {
   static auto s = boost::thread_specific_ptr<cch_query<P>>{};
   if (s.get() == nullptr) {
-    s.reset(new cch_query<P>(cch_path));
+    s.reset(new cch_query<P>());
   }
   return *s.get();
 }
@@ -628,7 +628,8 @@ std::optional<path> route_cch(typename P::parameters const& params,
     return *direct;
   }
 
-  auto const apply = [&](way_idx_t const& start_way, auto&& fn) {
+  auto const apply = [&](way_idx_t const& start_way, bool const should_continue, auto&& fn) {
+    bool keep_going = true;
     for (auto const [j, dest] : utl::enumerate(to_match)) {
       if (w.r_->way_component_[start_way] !=
           w.r_->way_component_[dest.way_]) {
@@ -636,10 +637,13 @@ std::optional<path> route_cch(typename P::parameters const& params,
       }
       for (auto const* nc : {&dest.left_, &dest.right_}) {
         if (nc->valid() && nc->cost_ < max) {
-          P::resolve_all(*w.r_, nc->node_, to.lvl_, [&](auto const node) {
-            fn(dest, *nc, node);
+          P::resolve_all(*w.r_, nc->node_, to.lvl_, [&](auto&& node) {
+            fn(keep_going, dest, *nc, node);
           });
         }
+      }
+      if (!keep_going && !should_continue) {
+        break;
       }
     }
   };
@@ -667,7 +671,7 @@ std::optional<path> route_cch(typename P::parameters const& params,
       continue;
     }
 
-    apply(start.way_, [&](way_candidate const& dest, node_candidate const& dest_nc, auto const node) {
+    apply(start.way_, true, [&](bool&, way_candidate const& dest, node_candidate const& dest_nc, auto&& node) {
       if (!P::is_dest_reachable(params, *w.r_, node, dest.way_,
                                 flip(opposite(dir), dest_nc.way_dir_), dir)) {
         return;
@@ -685,7 +689,7 @@ std::optional<path> route_cch(typename P::parameters const& params,
     node_candidate best_nc;
     auto best_node = P::node::invalid();
     auto best_cost = kInfeasible;
-    apply(start.way_, [&](way_candidate const& dest, node_candidate const& dest_nc, auto const node) {
+    apply(start.way_, false, [&](bool& keep_going, way_candidate const& dest, node_candidate const& dest_nc, auto&& node) {
       if (!P::is_dest_reachable(params, *w.r_, node, dest.way_,
                                 flip(opposite(dir), dest_nc.way_dir_), dir)) {
         return;
@@ -701,6 +705,7 @@ std::optional<path> route_cch(typename P::parameters const& params,
         best_nc = dest_nc;
         best_node = node;
         best_cost = total_cost;
+        keep_going = false;
       }
     });
 
@@ -930,7 +935,7 @@ std::optional<path> route_cch(profile_parameters const& params,
       return std::nullopt;
     }
 
-    return route_cch(pp, w, l, get_cch_query<P>(w.p_), from, to, from_match,
+    return route_cch(pp, w, l, get_cch_query<P>(), from, to, from_match,
                           to_match, max, dir, blocked, sharing, elevations);
   });
 }
@@ -1000,7 +1005,7 @@ std::optional<path> route(profile_parameters const& params,
     case routing_algorithm::kCCH:
       return with_profile(profile, [&]<Profile P>(P&&) {
         return route_cch(std::get<typename P::parameters>(params), w, l,
-                         get_cch_query<P>(w.p_), from, to, from_match, to_match,
+                         get_cch_query<P>(), from, to, from_match, to_match,
                          max, dir, blocked, sharing, elevations);
       });
   }

@@ -19,6 +19,14 @@ namespace osr::cch_preprocessing {
     struct profile_name;
 
     template <>
+    struct profile_name<foot<false, noop_tracking>> {
+        static constexpr std::string_view const value = "cc_foot_noop_tracking.bin";
+    };
+    template <>
+    struct profile_name<foot<true, noop_tracking>> {
+        static constexpr std::string_view const value = "cc_wheelchair_noop_tracking.bin";
+    };
+    template <>
     struct profile_name<foot<false, elevator_tracking>> {
         static constexpr std::string_view const value = "cc_foot.bin";
     };

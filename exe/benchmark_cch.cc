@@ -187,6 +187,7 @@ int main(int argc, char const* argv[]) {
   auto const w = ways{opt.data_dir_, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, opt.data_dir_, cista::mmap::protection::READ};
   auto const elevations = elevation_storage::try_open(opt.data_dir_);
+  osr::cch_preprocessing::preprocessed_data::load_metric_independent(opt.data_dir_);
 
   auto threads = std::vector<std::thread>(std::max(1U, opt.threads_));
   auto results = std::vector<benchmark_result>{};
@@ -196,13 +197,15 @@ int main(int argc, char const* argv[]) {
                                  typename P::parameters const& params,
                                  search_profile const profile,
                                  const char* profile_label) {
+
+    osr::cch_preprocessing::preprocessed_data::load_customized_cost<P>(opt.data_dir_);
     results.clear();
     auto i = std::atomic_size_t{0U};
     auto m = std::mutex{};
     for (auto& t : threads) {
       t = std::thread([&]() {
         auto d = dijkstra<P>{};
-        auto q = cch_query<P>{opt.data_dir_};
+        auto q = cch_query<P>{};
         auto h = cista::BASE_HASH;
         auto n = 0U;
         while (i.fetch_add(1U) < opt.n_queries_ - 1) {

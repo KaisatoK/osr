@@ -82,22 +82,23 @@ namespace osr::cch_preprocessing {
     }
   }
 
-  vec_map<node_idx_t, node_idx_t> elimination_tree::compute(node_ordering const& ordering, ways const& w) {
+  elimination_tree elimination_tree::compute(node_ordering const& ordering, ways const& w) {
     auto g = graph{ordering.size()};
 
     // Build the adjacency list for the graph based on the ways and ordering
-    for (auto const [from_ord, from] : utl::enumerate(ordering.new_to_old_)) {
+    // for (auto const [from_ord, from] : utl::enumerate(ordering.new_to_old_)) {}
+    ordering.for_each_node<true>([&](node_idx_t const& from_ord, node_idx_t const& from) {
       for (auto const [way, i] :
               utl::zip_unchecked(w.r_->node_ways_[from], w.r_->node_in_way_idx_[from])) {
 
         auto const expand = [&](std::uint16_t const to) {
-          auto const target_ordering = ordering.get_ordering(w.r_->way_nodes_[way][to]);
-          if (target_ordering == from_ord) {
+          auto const target_ord = ordering.get_ordering(w.r_->way_nodes_[way][to]);
+          if (target_ord == from_ord) {
             return;
           }
-          if ((kDoFastContraction && target_ordering < from_ord)
-              || (!kDoFastContraction && target_ordering > from_ord)) {
-            g[from_ord].emplace_back(target_ordering);  
+          if ((kDoFastContraction && target_ord < from_ord)
+              || (!kDoFastContraction && target_ord > from_ord)) {
+            g[from_ord.v_].emplace_back(target_ord);  
           }
         };
 
@@ -108,7 +109,8 @@ namespace osr::cch_preprocessing {
           expand(i + 1);
         }
       }
-    }
+    });
+    
 
     auto tmp_res = std::vector<std::uint32_t>(ordering.size(), ordering.size());
     if (kDoFastContraction) {
@@ -118,16 +120,20 @@ namespace osr::cch_preprocessing {
     }
 
     auto res = vec_map<node_idx_t, node_idx_t>(ordering.size());
+    // for (std::uint32_t i = 0U; i < ordering.size(); ++i) {
+    //   auto idx = ordering.get_node(static_cast<node_idx_t>(i));
+    //   if (tmp_res[i] == ordering.size()) {
+    //     res[idx] = node_idx_t::invalid();
+    //   } else {
+    //     res[idx] = ordering.get_node(static_cast<node_idx_t>(tmp_res[i]));
+    //   }
+    // }
     for (std::uint32_t i = 0U; i < ordering.size(); ++i) {
-      auto idx = ordering.get_node(static_cast<node_idx_t>(i));
-      if (tmp_res[i] == ordering.size()) {
-        res[idx] = node_idx_t::invalid();
-      } else {
-        res[idx] = ordering.get_node(static_cast<node_idx_t>(tmp_res[i]));
-      }
+        auto idx = static_cast<node_idx_t>(i);
+        res[idx] = (tmp_res[i] == ordering.size()) ? node_idx_t::invalid() : static_cast<node_idx_t>(tmp_res[i]);
     }
 
-    return res;
+    return elimination_tree{res};
   }
 
 } // namespace osr::cch_preprocessing

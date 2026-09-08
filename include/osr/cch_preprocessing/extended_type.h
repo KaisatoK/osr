@@ -6,24 +6,48 @@ namespace osr::cch_preprocessing {
 
     template <typename T> 
     concept HasNodeImportance = requires (T t, node_idx_t idx) 
-        {
-            { t.node_important_[idx] } noexcept -> std::same_as<std::uint32_t&>;
-        };
+    {
+        { t.node_importance_[idx] } noexcept -> std::same_as<std::uint32_t&>;
+    };
 
-    using ext_node_idx_t = pair<node_idx_t, std::uint16_t>;
     using ext_edge_idx_t = way_idx_t;
 
-    constexpr std::string to_string(ext_node_idx_t idx) {
-        return fmt::format("({}, {})", idx.first, idx.second);
-    }
+    struct ext_node {
 
-    constexpr std::string to_string(ext_edge_idx_t idx) {
-        return fmt::format("({})", idx);
-    }
+        static auto to_ext_node(std::uint32_t const primary_idx, std::uint16_t const sub_idx) {
+            return ext_node{
+                .primary_idx_ = static_cast<node_idx_t>(primary_idx), 
+                .sub_idx_ = sub_idx
+            };
+        }
+
+        static constexpr auto const invalid() {
+            return ext_node{
+                .primary_idx_ = node_idx_t::invalid(), 
+                .sub_idx_ = std::numeric_limits<std::uint16_t>::max()
+            };
+        }
+
+        friend constexpr auto operator<=>(ext_node const& a, ext_node const& b) noexcept {
+            return std::tie(a.primary_idx_, a.sub_idx_) <=> std::tie(b.primary_idx_, b.sub_idx_);
+        }
+
+        friend constexpr auto operator==(ext_node const& a, ext_node const& b) noexcept {
+            return std::tie(a.primary_idx_, a.sub_idx_) == std::tie(b.primary_idx_, b.sub_idx_);
+        }
+
+        friend constexpr auto operator!=(ext_node const& a, ext_node const& b) noexcept {
+            return std::tie(a.primary_idx_, a.sub_idx_) != std::tie(b.primary_idx_, b.sub_idx_);
+        }
+
+        node_idx_t const first() const { return primary_idx_; }
+        std::uint16_t second() const { return sub_idx_; }
+
+        node_idx_t primary_idx_;
+        std::uint16_t sub_idx_;
+    };
 
     struct ext_edge {
-        static constexpr std::size_t const kMaxTracebackSize = 4U;
-
         template <std::size_t NMaxTypes>
         friend constexpr auto static_type_hash(
             ext_edge const*, cista::hash_data<NMaxTypes> h) noexcept {
@@ -33,29 +57,60 @@ namespace osr::cch_preprocessing {
         }
 
         inline bool is_original() const{
-            return traceback_.empty();
+            return traceback_ == pair(ext_edge_idx_t::invalid(), ext_edge_idx_t::invalid());
         }
 
         void update(cost_t const new_cost, ext_edge_idx_t const first_half, ext_edge_idx_t const second_half) {
             if (new_cost < cost_) {
                 cost_ = new_cost;
-                traceback_.clear();
-                traceback_.emplace_back(pair(first_half, second_half));
-            } else if (new_cost == cost_ && traceback_.size() < kMaxTracebackSize) {
-                traceback_.emplace_back(pair(first_half, second_half));
+                traceback_ = pair(first_half, second_half);
             }
         }
 
         void update(cost_t const new_cost) {
             if (new_cost < cost_) {
                 cost_ = new_cost;
-                traceback_.clear();
+                traceback_ = pair(ext_edge_idx_t::invalid(), ext_edge_idx_t::invalid());
             }
         }
 
-        ext_node_idx_t from_, to_;
+        ext_edge_idx_t idx_;
+        ext_node from_, to_;
         cost_t cost_ = kInfeasible;
-        vec<pair<ext_edge_idx_t, ext_edge_idx_t>> traceback_{};
+        pair<ext_edge_idx_t, ext_edge_idx_t> traceback_ = pair(ext_edge_idx_t::invalid(), ext_edge_idx_t::invalid());
     };
+
+    struct node_entry {
+        static constexpr node_entry const invalid() {
+            return node_entry{
+                .curr_ = ext_node::invalid(), 
+                .cost_ = kInfeasible, 
+                .pred_ = ext_edge_idx_t::invalid()
+            };
+        }
+
+        ext_edge_idx_t const pred() const {
+            return pred_;
+        }
+
+        void update(cost_t const new_cost, ext_edge_idx_t const pred) {
+            if (new_cost < cost_) {
+                cost_ = new_cost;
+                pred_ = pred;
+            }
+        }
+
+        ext_node curr_;
+        cost_t cost_;
+        ext_edge_idx_t pred_;
+    };
+
+    constexpr std::string to_string(ext_node idx) {
+        return fmt::format("({}, {})", idx.first(), idx.second());
+    }
+
+    constexpr std::string to_string(ext_edge_idx_t idx) {
+        return fmt::format("({})", idx);
+    }
 
 } // namespace osr::cch_preprocessing
