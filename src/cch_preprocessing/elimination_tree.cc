@@ -5,6 +5,12 @@ namespace osr::cch_preprocessing {
 void elimination_tree::normal_contraction(graph& adj,
                                           std::vector<std::uint32_t>& res) {
   utl::verify(!adj.empty(), "Adjacency list is empty");
+
+  auto const erase_duplicates = [](auto& values) {
+    std::sort(values.begin(), values.end());
+    values.erase(std::unique(values.begin(), values.end()), values.end());
+  };
+
   std::vector<bool> is_sorted(adj.size(), false);
   for (std::uint32_t i = 0; i < res.size(); ++i) {
     if (adj[i].empty()) {
@@ -16,12 +22,12 @@ void elimination_tree::normal_contraction(graph& adj,
     }
 
     if (!is_sorted[i]) {
-      utl::erase_duplicates(adj[i]);
+      erase_duplicates(adj[i]);
       is_sorted[i] = true;
     }
     auto const nxt_min = adj[i][0];
     if (!is_sorted[nxt_min]) {
-      utl::erase_duplicates(adj[nxt_min]);
+      erase_duplicates(adj[nxt_min]);
       is_sorted[nxt_min] = true;
     }
 
