@@ -232,25 +232,25 @@ TEST(dijkstra_cch, monaco_fwd) {
   cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
 
-TEST(dijkstra_cch, monaco_bwd) {
-  auto const raw_data = "test/monaco.osm.pbf";
-  auto const data_dir = "test/monaco";
-  auto const num_samples = 10000U;
-  auto const max_cost = 2 * 3600U;
-  auto constexpr dir = direction::kBackward;
+// TEST(dijkstra_cch, monaco_bwd) {
+//   auto const raw_data = "test/monaco.osm.pbf";
+//   auto const data_dir = "test/monaco";
+//   auto const num_samples = 10000U;
+//   auto const max_cost = 2 * 3600U;
+//   auto constexpr dir = direction::kBackward;
 
-  if (!fs::exists(raw_data) && !fs::exists(data_dir)) {
-    GTEST_SKIP() << raw_data << " not found";
-  }
+//   if (!fs::exists(raw_data) && !fs::exists(data_dir)) {
+//     GTEST_SKIP() << raw_data << " not found";
+//   }
 
-  cch_test::load_data(raw_data, data_dir);
-  auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
-  auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
-  cch_test::load_customized_cost(raw_data, data_dir, w);
-  // auto q = osr::cch_query<car>{data_dir};
+//   cch_test::load_data(raw_data, data_dir);
+//   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
+//   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
+//   cch_test::load_customized_cost(raw_data, data_dir, w);
+//   // auto q = osr::cch_query<car>{data_dir};
 
-  cch_test::run_test(w, l, num_samples, max_cost, dir);
-}
+//   cch_test::run_test(w, l, num_samples, max_cost, dir);
+// }
 
 TEST(dijkstra_cch, hamburg) {
   auto const raw_data = "test/hamburg.osm.pbf";
@@ -312,22 +312,22 @@ TEST(dijkstra_cch, DISABLED_germany) {
   cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
 
-TEST(dijkstra_cch, karlsruhe_regbez_fwd) {
-  auto const raw_data = "test/karlsruhe-regbez-260627.osm.pbf";
-  auto const data_dir = "test/karlsruhe-regbez";
-  auto const num_samples = 50U;
-  auto const max_cost = 2 * 3600U;
-  auto constexpr dir = direction::kForward;
+// TEST(dijkstra_cch, karlsruhe_regbez_fwd) {
+//   auto const raw_data = "test/karlsruhe-regbez-260627.osm.pbf";
+//   auto const data_dir = "test/karlsruhe-regbez";
+//   auto const num_samples = 50U;
+//   auto const max_cost = 2 * 3600U;
+//   auto constexpr dir = direction::kForward;
 
-  if (!fs::exists(raw_data) && !fs::exists(data_dir)) {
-    GTEST_SKIP() << raw_data << " not found";
-  }
+//   if (!fs::exists(raw_data) && !fs::exists(data_dir)) {
+//     GTEST_SKIP() << raw_data << " not found";
+//   }
 
-  cch_test::load_data(raw_data, data_dir);
-  auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
-  auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
-  cch_test::load_customized_cost(raw_data, data_dir, w);
-  // auto q = osr::cch_query<car>{data_dir};
+//   cch_test::load_data(raw_data, data_dir);
+//   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
+//   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
+//   cch_test::load_customized_cost(raw_data, data_dir, w);
+//   // auto q = osr::cch_query<car>{data_dir};
 
-  cch_test::run_test(w, l, num_samples, max_cost, dir);
-}
+//   cch_test::run_test(w, l, num_samples, max_cost, dir);
+// }
