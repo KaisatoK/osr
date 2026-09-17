@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <string_view>
 #include <limits>
+#include <string_view>
 
 #include "cista/mmap.h"
 
@@ -208,13 +208,15 @@ void valid_test(std::string_view data_dir, ways const& w) {
     for (auto const& [sub_idx, node] : utl::enumerate(sub_idxes)) {
       // auto const ext_node =
       // osr::cch_preprocessing::ext_node::to_ext_node(idx, sub_idx);
-      std::uint32_t const ext_node = cc.idx_ranges_.at(idx) + static_cast<std::uint32_t>(sub_idx);
+      std::uint32_t const ext_node =
+          cc.idx_ranges_.at(idx) + static_cast<std::uint32_t>(sub_idx);
       auto const& par = cc.get_parent(ext_node);
 
       if (sub_idx < sub_idxes.size() - 1U) {
         // auto const nxt = osr::cch_preprocessing::ext_node::to_ext_node(idx,
         // sub_idx + 1U);
-        std::uint32_t const nxt = cc.idx_ranges_.at(idx) + static_cast<std::uint32_t>(sub_idx + 1U);
+        std::uint32_t const nxt =
+            cc.idx_ranges_.at(idx) + static_cast<std::uint32_t>(sub_idx + 1U);
         ASSERT_EQ(par.v_, nxt);
       } else if (cc.upward_edges_.at(ext_node).first !=
                  cc.upward_edges_.at(ext_node).second) {
