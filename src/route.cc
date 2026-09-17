@@ -108,11 +108,11 @@ path reconstruct_cch(typename P::parameters const& params,
     auto const& entry = cch_q.get_node_entry(n);
     auto const pred_edge = entry.pred();
     if (pred_edge != prep::ext_edge_idx_t::invalid()) {
-      auto const edge_list = cch_q.cost_function_.trace_sg_edge(pred_edge);
+      auto const edge_list = cch_q.cost_function_->trace_sg_edge(pred_edge);
       for (auto it = edge_list.rbegin(); it != edge_list.rend(); ++it) {
         auto const& e = *it;
         auto const expected_cost = e.cost_;
-        auto const pred = cch_q.cost_function_.get_virtual_node(e.from_);
+        auto const pred = cch_q.cost_function_->get_virtual_node(e.from_);
         dist +=
             add_path<P>(params, w, *w.r_, blocked, sharing, elevations, pred, n,
                         expected_cost, segments, direction::kForward);

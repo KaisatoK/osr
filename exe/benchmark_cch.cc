@@ -355,11 +355,11 @@ int main(int argc, char const* argv[]) {
   auto const bike_speed = 3.5F * walk_speed;
   // run_speed_benchmark(search_profile::kFoot, "foot", walk_speed);
   run_speed_benchmark(search_profile::kCar, "car");
-  run_speed_benchmark(search_profile::kBike, "bike", bike_speed);
-  run_speed_benchmark(search_profile::kBikeElevationLow,
-                      "bike (low elevation costs)", bike_speed);
-  run_speed_benchmark(search_profile::kBikeElevationHigh,
-                      "bike (high elevation costs)", bike_speed);
+  // run_speed_benchmark(search_profile::kBike, "bike", bike_speed);
+  // run_speed_benchmark(search_profile::kBikeElevationLow,
+  //                     "bike (low elevation costs)", bike_speed);
+  // run_speed_benchmark(search_profile::kBikeElevationHigh,
+  //                     "bike (high elevation costs)", bike_speed);
   if (opt.mem_usage_) {
     mem_usage->stop();
     auto const peak = mem_usage->get_peak_memory_usage();
