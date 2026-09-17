@@ -13,20 +13,20 @@
 
 #include "fmt/core.h"
 
-#include "osr/types.h"
-#include "osr/ways.h"
+#include "osr/cch_preprocessing/preprocess.h"
+#include "osr/cch_preprocessing/preprocessed_data.h"
 #include "osr/extract/extract.h"
 #include "osr/geojson.h"
 #include "osr/location.h"
 #include "osr/lookup.h"
-#include "osr/routing/cch_query.h"
 #include "osr/routing/bidirectional.h"
+#include "osr/routing/cch_query.h"
 #include "osr/routing/dijkstra.h"
 #include "osr/routing/profile.h"
 #include "osr/routing/profiles/car.h"
 #include "osr/routing/route.h"
-#include "osr/cch_preprocessing/preprocess.h"
-#include "osr/cch_preprocessing/preprocessed_data.h"
+#include "osr/types.h"
+#include "osr/ways.h"
 
 namespace fs = std::filesystem;
 using namespace osr;
@@ -48,22 +48,27 @@ void load_data(std::string_view raw_data, std::string_view data_dir) {
   }
 }
 
-void load_customized_cost(std::string_view raw_data, std::string_view data_dir, ways const& w) {
+void load_customized_cost(std::string_view raw_data,
+                          std::string_view data_dir,
+                          ways const& w) {
   if (fs::exists(raw_data)) {
     fmt::print("Preprocessing CCH for {}...\n", data_dir);
     osr::cch_preprocessing::preprocess(data_dir, w);
-    fmt::print("Done extracting and preprocessing {} to {}.\n", raw_data, data_dir);
-    osr::cch_preprocessing::preprocessed_data::load_metric_independent(fs::path{data_dir});
-    osr::cch_preprocessing::preprocessed_data::load_customized_cost<car>(fs::path{data_dir});
+    fmt::print("Done extracting and preprocessing {} to {}.\n", raw_data,
+               data_dir);
+    osr::cch_preprocessing::preprocessed_data::load_metric_independent(
+        fs::path{data_dir});
+    osr::cch_preprocessing::preprocessed_data::load_customized_cost<car>(
+        fs::path{data_dir});
   }
 }
 
 void run_test(ways const& w,
-         lookup const& l,
-        //  cch_query<car>& q,
-         unsigned const n_samples,
-         unsigned const max_cost,
-         direction const dir) {
+              lookup const& l,
+              //  cch_query<car>& q,
+              unsigned const n_samples,
+              unsigned const max_cost,
+              direction const dir) {
 
   auto const from_tos = [&]() {
     auto prng = std::mt19937{};
@@ -129,8 +134,8 @@ void run_test(ways const& w,
     auto const experiment = [&]() {
       try {
         // return route_cch_car(car::parameters{}, w, l, q, from_loc, to_loc,
-        //                     from_matches_span, to_matches_span, max_cost, dir,
-        //                     nullptr, nullptr, nullptr);
+        //                     from_matches_span, to_matches_span, max_cost,
+        //                     dir, nullptr, nullptr, nullptr);
         return route(car::parameters{}, w, l, search_profile::kCar, from_loc,
                      to_loc, from_matches_span, to_matches_span, max_cost, dir,
                      nullptr, nullptr, nullptr, routing_algorithm::kCCH);
@@ -205,12 +210,12 @@ void run_test(ways const& w,
                     .count()));
   }
 }
-} // namespace cch_test
+}  // namespace cch_test
 
 TEST(dijkstra_cch, monaco_fwd) {
   auto const raw_data = "test/monaco.osm.pbf";
   auto const data_dir = "test/monaco";
-  auto const num_samples = 1000U;
+  auto const num_samples = 10000U;
   auto const max_cost = 2 * 3600U;
   auto constexpr dir = direction::kForward;
 

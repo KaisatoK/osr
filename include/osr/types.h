@@ -178,7 +178,7 @@ struct level_t {
 
   template <std::size_t NMaxTypes>
   friend constexpr auto static_type_hash(
-    level_t const*, cista::hash_data<NMaxTypes> h) noexcept {
+      level_t const*, cista::hash_data<NMaxTypes> h) noexcept {
     using cista::static_type_hash;
     h = h.combine(cista::hash("level_t v1.0"));
     return h;

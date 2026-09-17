@@ -119,7 +119,7 @@ void set_start(typename P::parameters const& params,
                ways const& w,
                node_idx_t const start) {
   cch_q.add_start(typename P::node{start}, 0U);
-} 
+}
 
 template <>
 void set_start<car>(car::parameters const& params,
@@ -181,13 +181,16 @@ int main(int argc, char const* argv[]) {
   }
 
   auto mem_usage = opt.mem_usage_
-                       ? std::make_unique<utl::memory_usage_printer>()
+                       ? std::make_unique<utl::memory_usage_printer>(
+                             std::cerr, utl::memory_usage_printer::mode::PRINT,
+                             std::chrono::seconds{1})
                        : std::unique_ptr<utl::memory_usage_printer>{};
 
   auto const w = ways{opt.data_dir_, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, opt.data_dir_, cista::mmap::protection::READ};
   auto const elevations = elevation_storage::try_open(opt.data_dir_);
-  osr::cch_preprocessing::preprocessed_data::load_metric_independent(opt.data_dir_);
+  osr::cch_preprocessing::preprocessed_data::load_metric_independent(
+      opt.data_dir_);
 
   auto threads = std::vector<std::thread>(std::max(1U, opt.threads_));
   auto results_cch = std::vector<benchmark_result>{};
@@ -199,8 +202,8 @@ int main(int argc, char const* argv[]) {
                                  typename P::parameters const& params,
                                  search_profile const profile,
                                  const char* profile_label) {
-
-    osr::cch_preprocessing::preprocessed_data::load_customized_cost<P>(opt.data_dir_);
+    osr::cch_preprocessing::preprocessed_data::load_customized_cost<P>(
+        opt.data_dir_);
     results_cch.clear();
     results_dijkstra.clear();
     auto i = std::atomic_size_t{0U};
@@ -240,10 +243,12 @@ int main(int argc, char const* argv[]) {
             auto const end_time = std::chrono::steady_clock::now();
 
             // std::cout << "took "
-            //           << std::chrono::duration_cast<std::chrono::milliseconds>(
+            //           <<
+            //           std::chrono::duration_cast<std::chrono::milliseconds>(
             //                  middle_time - start_time)
             //           << " vs "
-            //           << std::chrono::duration_cast<std::chrono::milliseconds>(
+            //           <<
+            //           std::chrono::duration_cast<std::chrono::milliseconds>(
             //                  end_time - middle_time)
             //           << std::endl;
 
@@ -253,12 +258,14 @@ int main(int argc, char const* argv[]) {
                         "not equal {} {}", d_res->cost_, q_res->cost_);
             {
               auto const guard = std::lock_guard{m};
-              results_cch.emplace_back(benchmark_result{std::chrono::duration_cast<
-                  decltype(benchmark_result::duration_)>(end_time -
-                                                         middle_time)});
-              results_dijkstra.emplace_back(benchmark_result{std::chrono::duration_cast<
-                  decltype(benchmark_result::duration_)>(middle_time -
-                                                         start_time)});
+              results_cch.emplace_back(
+                  benchmark_result{std::chrono::duration_cast<
+                      decltype(benchmark_result::duration_)>(end_time -
+                                                             middle_time)});
+              results_dijkstra.emplace_back(
+                  benchmark_result{std::chrono::duration_cast<
+                      decltype(benchmark_result::duration_)>(middle_time -
+                                                             start_time)});
             }
           } else {
             if (w.r_->way_component_[w.r_->node_ways_[start][0]] !=
@@ -280,10 +287,12 @@ int main(int argc, char const* argv[]) {
             q.run();
             auto const end_time = std::chrono::steady_clock::now();
             // std::cout << "took "
-            //           << std::chrono::duration_cast<std::chrono::milliseconds>(
+            //           <<
+            //           std::chrono::duration_cast<std::chrono::milliseconds>(
             //                  middle_time - start_time)
             //           << " vs "
-            //           << std::chrono::duration_cast<std::chrono::milliseconds>(
+            //           <<
+            //           std::chrono::duration_cast<std::chrono::milliseconds>(
             //                  end_time - middle_time)
             //           << std::endl;
             auto const q_res = q.get_best_cost();
@@ -298,12 +307,14 @@ int main(int argc, char const* argv[]) {
             }
             {
               auto const guard = std::lock_guard{m};
-              results_cch.emplace_back(benchmark_result{std::chrono::duration_cast<
-                  decltype(benchmark_result::duration_)>(end_time -
-                                                         middle_time)});
-              results_dijkstra.emplace_back(benchmark_result{std::chrono::duration_cast<
-                  decltype(benchmark_result::duration_)>(middle_time -
-                                                         start_time)});
+              results_cch.emplace_back(
+                  benchmark_result{std::chrono::duration_cast<
+                      decltype(benchmark_result::duration_)>(end_time -
+                                                             middle_time)});
+              results_dijkstra.emplace_back(
+                  benchmark_result{std::chrono::duration_cast<
+                      decltype(benchmark_result::duration_)>(middle_time -
+                                                             start_time)});
             }
           }
         }
@@ -314,12 +325,12 @@ int main(int argc, char const* argv[]) {
       t.join();
     }
 
-    std::ranges::sort(results_cch, std::less<>{}, [](benchmark_result const& res) {
-      return res.duration_;
-    });
-    std::ranges::sort(results_dijkstra, std::less<>{}, [](benchmark_result const& res) {
-      return res.duration_;
-    });
+    std::ranges::sort(
+        results_cch, std::less<>{},
+        [](benchmark_result const& res) { return res.duration_; });
+    std::ranges::sort(
+        results_dijkstra, std::less<>{},
+        [](benchmark_result const& res) { return res.duration_; });
 
     print_result(results_cch, profile_label);
     print_result(results_dijkstra, profile_label);
@@ -342,11 +353,19 @@ int main(int argc, char const* argv[]) {
   };
   auto const walk_speed = opt.speed_;
   auto const bike_speed = 3.5F * walk_speed;
-//   run_speed_benchmark(search_profile::kFoot, "foot", walk_speed);
+  // run_speed_benchmark(search_profile::kFoot, "foot", walk_speed);
   run_speed_benchmark(search_profile::kCar, "car");
-//   run_speed_benchmark(search_profile::kBike, "bike", bike_speed);
-//   run_speed_benchmark(search_profile::kBikeElevationLow,
-//                       "bike (low elevation costs)", bike_speed);
-//   run_speed_benchmark(search_profile::kBikeElevationHigh,
-//                       "bike (high elevation costs)", bike_speed);
+  run_speed_benchmark(search_profile::kBike, "bike", bike_speed);
+  run_speed_benchmark(search_profile::kBikeElevationLow,
+                      "bike (low elevation costs)", bike_speed);
+  run_speed_benchmark(search_profile::kBikeElevationHigh,
+                      "bike (high elevation costs)", bike_speed);
+  if (opt.mem_usage_) {
+    mem_usage->stop();
+    auto const peak = mem_usage->get_peak_memory_usage();
+
+    fmt::println("Query peak RSS: {:.1f} MB, peak virtual: {:.1f} MB",
+                 static_cast<double>(peak.rss_) / (1024.0 * 1024.0),
+                 static_cast<double>(peak.virtual_) / (1024.0 * 1024.0));
+  }
 }
