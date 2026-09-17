@@ -55,11 +55,11 @@ struct preprocessed_data {
     // elimination_tree_ = elimination_tree::read(dir);
   }
 
-  template <Profile P, bool forcedUpdate = false>
+  template <Profile P, bool relaxUpdate = false>
   static void load_customized_cost(std::filesystem::path const& dir) {
     utl::verify(std::filesystem::exists(dir),
                 "preprocessed data directory does not exist");
-    if (!forcedUpdate &&
+    if (relaxUpdate &&
         std::holds_alternative<cista::wrapped<customized_cost_stored<P>>>(
             customized_cost_)) {
       return;

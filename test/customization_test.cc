@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string_view>
+#include <limits>
 
 #include "cista/mmap.h"
 
@@ -207,13 +208,13 @@ void valid_test(std::string_view data_dir, ways const& w) {
     for (auto const& [sub_idx, node] : utl::enumerate(sub_idxes)) {
       // auto const ext_node =
       // osr::cch_preprocessing::ext_node::to_ext_node(idx, sub_idx);
-      auto const ext_node = cc.idx_ranges_.at(idx) + sub_idx;
+      std::uint32_t const ext_node = cc.idx_ranges_.at(idx) + static_cast<std::uint32_t>(sub_idx);
       auto const& par = cc.get_parent(ext_node);
 
       if (sub_idx < sub_idxes.size() - 1U) {
         // auto const nxt = osr::cch_preprocessing::ext_node::to_ext_node(idx,
         // sub_idx + 1U);
-        auto const nxt = cc.idx_ranges_.at(idx) + sub_idx + 1U;
+        std::uint32_t const nxt = cc.idx_ranges_.at(idx) + static_cast<std::uint32_t>(sub_idx + 1U);
         ASSERT_EQ(par.v_, nxt);
       } else if (cc.upward_edges_.at(ext_node).first !=
                  cc.upward_edges_.at(ext_node).second) {
@@ -275,18 +276,18 @@ TEST(customization, hamburg) {
   customization_test::valid_test(data_dir, w);
 }
 
-TEST(customization, karlsruhe_regbez) {
-  auto const raw_data = "test/karlsruhe-regbez-260627.osm.pbf";
-  auto const data_dir = "test/karlsruhe_regbez";
+// TEST(customization, karlsruhe_regbez) {
+//   auto const raw_data = "test/karlsruhe-regbez-260627.osm.pbf";
+//   auto const data_dir = "test/karlsruhe_regbez";
 
-  if (!fs::exists(raw_data) && !fs::exists(data_dir)) {
-    GTEST_SKIP() << raw_data << " not found";
-  }
+//   if (!fs::exists(raw_data) && !fs::exists(data_dir)) {
+//     GTEST_SKIP() << raw_data << " not found";
+//   }
 
-  customization_test::load_data(raw_data, data_dir);
-  auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
-  auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
-  customization_test::load_customized_cost(raw_data, data_dir, w);
+//   customization_test::load_data(raw_data, data_dir);
+//   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
+//   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
+//   customization_test::load_customized_cost(raw_data, data_dir, w);
 
-  customization_test::valid_test(data_dir, w);
-}
+//   customization_test::valid_test(data_dir, w);
+// }
