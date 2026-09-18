@@ -52,7 +52,6 @@ struct preprocessed_data {
     utl::verify(std::filesystem::exists(dir),
                 "preprocessed data directory does not exist");
     ordering_ = node_ordering::read(dir);
-    // elimination_tree_ = elimination_tree::read(dir);
   }
 
   template <Profile P, bool relaxUpdate = false>
@@ -82,16 +81,8 @@ struct preprocessed_data {
     return *ordering_;
   }
 
-  // static elimination_tree const& get_elimination_tree() {
-  //     utl::verify(elimination_tree_, "elimination tree not loaded");
-  //     return *elimination_tree_;
-  // }
-
   inline static cista::wrapped<node_ordering> ordering_ =
       cista::wrapped<node_ordering>{cista::raw::make_unique<node_ordering>()};
-  // inline static cista::wrapped<elimination_tree> elimination_tree_
-  //         =
-  //         cista::wrapped<elimination_tree>{cista::raw::make_unique<elimination_tree>()};
   inline static customized_costs customized_cost_ =
       false;  // default to false, meaning no customized cost is loaded
 };

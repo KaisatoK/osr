@@ -19,9 +19,6 @@ struct cch_query {
   using entry = typename P::entry;
   using hash = typename P::hash;
 
-  // cch_query(std::filesystem::path const& path) :
-  // cost_function_{*prep::customized_cost_stored<P>::read(path)} {}
-
   void initialize() {
     ordering_ = &prep::preprocessed_data::get_ordering();
     cost_function_ = &prep::preprocessed_data::get_customized_cost<P>();

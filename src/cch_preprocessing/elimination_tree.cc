@@ -96,7 +96,6 @@ elimination_tree elimination_tree::compute(node_ordering const& ordering,
   auto g = graph{ordering.size()};
 
   // Build the adjacency list for the graph based on the ways and ordering
-  // for (auto const [from_ord, from] : utl::enumerate(ordering.new_to_old_)) {}
   ordering.for_each_node<true>(
       [&](node_idx_t const& from_ord, node_idx_t const& from) {
         for (auto const [way, i] : utl::zip_unchecked(
@@ -131,14 +130,6 @@ elimination_tree elimination_tree::compute(node_ordering const& ordering,
   }
 
   auto res = vec_map<node_idx_t, node_idx_t>(ordering.size());
-  // for (std::uint32_t i = 0U; i < ordering.size(); ++i) {
-  //   auto idx = ordering.get_node(static_cast<node_idx_t>(i));
-  //   if (tmp_res[i] == ordering.size()) {
-  //     res[idx] = node_idx_t::invalid();
-  //   } else {
-  //     res[idx] = ordering.get_node(static_cast<node_idx_t>(tmp_res[i]));
-  //   }
-  // }
   for (std::uint32_t i = 0U; i < ordering.size(); ++i) {
     auto idx = static_cast<node_idx_t>(i);
     res[idx] = (tmp_res[i] == ordering.size())

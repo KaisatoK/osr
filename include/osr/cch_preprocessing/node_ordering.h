@@ -13,13 +13,7 @@
 namespace osr::cch_preprocessing {
 struct node_ordering {
 
-  inline std::uint32_t size() const {
-    // utl::verify(
-    //     old_to_new_.size() == new_to_old_.size(),
-    //     "old_to_new and new_to_old size mismatch, expected {} but got {}",
-    //     old_to_new_.size(), new_to_old_.size());
-    return old_to_new_.size();
-  }
+  inline std::uint32_t size() const { return old_to_new_.size(); }
 
   node_idx_t const get_ordering(node_idx_t const node) const {
     utl::verify(node < old_to_new_.size(),

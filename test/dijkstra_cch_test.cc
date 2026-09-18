@@ -133,9 +133,6 @@ void run_test(ways const& w,
     auto const experiment_start = std::chrono::steady_clock::now();
     auto const experiment = [&]() {
       try {
-        // return route_cch_car(car::parameters{}, w, l, q, from_loc, to_loc,
-        //                     from_matches_span, to_matches_span, max_cost,
-        //                     dir, nullptr, nullptr, nullptr);
         return route(car::parameters{}, w, l, search_profile::kCar, from_loc,
                      to_loc, from_matches_span, to_matches_span, max_cost, dir,
                      nullptr, nullptr, nullptr, routing_algorithm::kCCH);
@@ -227,30 +224,28 @@ TEST(dijkstra_cch, monaco_fwd) {
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
   cch_test::load_customized_cost(raw_data, data_dir, w);
-  // auto q = osr::cch_query<car>{data_dir};
 
   cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
 
-// TEST(dijkstra_cch, monaco_bwd) {
-//   auto const raw_data = "test/monaco.osm.pbf";
-//   auto const data_dir = "test/monaco";
-//   auto const num_samples = 10000U;
-//   auto const max_cost = 2 * 3600U;
-//   auto constexpr dir = direction::kBackward;
+TEST(dijkstra_cch, DISABLED_monaco_bwd) {
+  auto const raw_data = "test/monaco.osm.pbf";
+  auto const data_dir = "test/monaco";
+  auto const num_samples = 10000U;
+  auto const max_cost = 2 * 3600U;
+  auto constexpr dir = direction::kBackward;
 
-//   if (!fs::exists(raw_data) && !fs::exists(data_dir)) {
-//     GTEST_SKIP() << raw_data << " not found";
-//   }
+  if (!fs::exists(raw_data) && !fs::exists(data_dir)) {
+    GTEST_SKIP() << raw_data << " not found";
+  }
 
-//   cch_test::load_data(raw_data, data_dir);
-//   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
-//   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
-//   cch_test::load_customized_cost(raw_data, data_dir, w);
-//   // auto q = osr::cch_query<car>{data_dir};
+  cch_test::load_data(raw_data, data_dir);
+  auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
+  auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
+  cch_test::load_customized_cost(raw_data, data_dir, w);
 
-//   cch_test::run_test(w, l, num_samples, max_cost, dir);
-// }
+  cch_test::run_test(w, l, num_samples, max_cost, dir);
+}
 
 TEST(dijkstra_cch, hamburg) {
   auto const raw_data = "test/hamburg.osm.pbf";
@@ -267,7 +262,6 @@ TEST(dijkstra_cch, hamburg) {
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
   cch_test::load_customized_cost(raw_data, data_dir, w);
-  // auto q = osr::cch_query<car>{data_dir};
 
   cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
@@ -287,7 +281,6 @@ TEST(dijkstra_cch, switzerland) {
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
   cch_test::load_customized_cost(raw_data, data_dir, w);
-  // auto q = osr::cch_query<car>{data_dir};
 
   cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
@@ -307,27 +300,6 @@ TEST(dijkstra_cch, DISABLED_germany) {
   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
   cch_test::load_customized_cost(raw_data, data_dir, w);
-  // auto q = osr::cch_query<car>{data_dir};
 
   cch_test::run_test(w, l, num_samples, max_cost, dir);
 }
-
-// TEST(dijkstra_cch, karlsruhe_regbez_fwd) {
-//   auto const raw_data = "test/karlsruhe-regbez-260627.osm.pbf";
-//   auto const data_dir = "test/karlsruhe-regbez";
-//   auto const num_samples = 50U;
-//   auto const max_cost = 2 * 3600U;
-//   auto constexpr dir = direction::kForward;
-
-//   if (!fs::exists(raw_data) && !fs::exists(data_dir)) {
-//     GTEST_SKIP() << raw_data << " not found";
-//   }
-
-//   cch_test::load_data(raw_data, data_dir);
-//   auto const w = osr::ways{data_dir, cista::mmap::protection::READ};
-//   auto const l = osr::lookup{w, data_dir, cista::mmap::protection::READ};
-//   cch_test::load_customized_cost(raw_data, data_dir, w);
-//   // auto q = osr::cch_query<car>{data_dir};
-
-//   cch_test::run_test(w, l, num_samples, max_cost, dir);
-// }

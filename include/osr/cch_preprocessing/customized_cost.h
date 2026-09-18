@@ -223,12 +223,6 @@ struct customized_cost_builder {
   static void add_edge(ext_node const& from_idx,
                        ext_node const& to_idx,
                        std::optional<list_it> from_ins_pos = std::nullopt) {
-    // utl::verify(ext_nodes_comp(from_idx, to_idx), "Expected upward edge from
-    // {} to {}, but ordering is not correct, odering {}, {}",
-    // to_string(from_idx), to_string(to_idx),
-    // ordering_.get_ordering(from_idx.first),
-    // ordering_.get_ordering(to_idx.first));
-
     if (!from_ins_pos)
       from_ins_pos = std::make_optional(get_upward_edges(from_idx).end());
 
